@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Controle Financeiro</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=IBM+Plex+Mono:wght@400;600&family=Inter:wght@400;500;600&display=swap');
+
+  :root {
+    --paper: #f7f3ea;
+    --paper-line: #ddd4bf;
+    --ink: #1c2b2d;
+    --ink-soft: #5a6b64;
+    --navy: #1f3b3a;
+    --gold: #b8863b;
+    --red-stamp: #a8362f;
+    --green-stamp: #2f6b4f;
+    --card: #ffffff;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: 'Inter', sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1, h2, h3 { font-family: 'Fraunces', serif; margin: 0; }
+
+  .num { font-family: 'IBM Plex Mono', monospace; font-variant-numeric: tabular-nums; }
+
+  header.topbar {
+    background: var(--navy);
+    color: var(--paper);
+    padding: 18px 24px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    border-bottom: 3px double var(--gold);
+  }
+  header.topbar h1 { font-size: 22px; letter-spacing: 0.3px; }
+  header.topbar span { color: var(--gold); font-size: 13px; font-family: 'IBM Plex Mono', monospace; }
+
+  #config-warning {
+    background: #fff3cd;
+    color: #7a5b00;
+    padding: 10px 24px;
+    font-size: 13px;
+    display: none;
+    border-bottom: 1px solid #e7d290;
+  }
+
+  nav.tabs {
+    display: flex;
+    gap: 2px;
+    background: var(--navy);
+    padding: 0 24px;
+    overflow-x: auto;
+  }
+  nav.tabs button {
+    background: transparent;
+    border: none;
+    color: #c9d6d1;
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    padding: 12px 16px;
+    cursor: pointer;
+    border-bottom: 3px solid transparent;
+    white-space: nowrap;
+  }
+  nav.tabs button.active {
+    color: #fff;
+    border-bottom-color: var(--gold);
+    font-weight: 600;
+  }
+
+  main { max-width: 1000px; margin: 0 auto; padding: 24px; }
+
+  .view { display: none; }
+  .view.active { display: block; }
+
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 14px;
+    margin-bottom: 28px;
+  }
+
+  .kpi-card {
+    background: var(--card);
+    border: 1px solid var(--paper-line);
+    border-left: 4px solid var(--navy);
+    border-radius: 4px;
+    padding: 16px;
+    position: relative;
+  }
+  .kpi-card .label {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--ink-soft);
+    margin-bottom: 6px;
+  }
+  .kpi-card .value { font-size: 24px; font-weight: 600; }
+  .kpi-card.negative { border-left-color: var(--red-stamp); }
+  .kpi-card.negative .value { color: var(--red-stamp); }
+  .kpi-card.positive .value { color: var(--green-stamp); }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--paper-line);
+    border-radius: 4px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  .card h2 { font-size: 18px; margin-bottom: 14px; }
+
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+  .field { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 140px; }
+  .field label { font-size: 12px; color: var(--ink-soft); }
+  .field input, .field select {
+    font-family: 'Inter', sans-serif;
+    padding: 9px 10px;
+    border: 1px solid var(--paper-line);
+    border-radius: 3px;
+    background: #fffdf8;
+    font-size: 14px;
+  }
+
+  button.btn {
+    background: var(--navy);
+    color: #fff;
+    border: none;
+    padding: 10px 18px;
+    border-radius: 3px;
+    font-size: 14px;
+    cursor: pointer;
+    font-family: 'Inter', sans-serif;
+    font-weight: 500;
+  }
+  button.btn:hover { background: #142927; }
+  button.btn.gold { background: var(--gold); }
+  button.btn.ghost { background: transparent; color: var(--navy); border: 1px solid var(--navy); }
+
+  table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+  thead th {
+    text-align: left;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--ink-soft);
+    padding: 8px 6px;
+    border-bottom: 2px solid var(--ink);
+  }
+  tbody td {
+    padding: 10px 6px;
+    border-bottom: 1px solid var(--paper-line);
+    font-size: 14px;
+  }
+  tbody tr:hover { background: #fbf8f0; }
+
+  .stamp {
+    display: inline-block;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    padding: 3px 9px;
+    border-radius: 2px;
+    border: 1.5px solid;
+    transform: rotate(-2deg);
+    cursor: pointer;
+  }
+  .stamp.pago { color: var(--green-stamp); border-color: var(--green-stamp); }
+  .stamp.pendente { color: var(--red-stamp); border-color: var(--red-stamp); }
+
+  .badge-tipo {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 600;
+  }
+  .badge-tipo.Entrada { background: #e4f1ea; color: var(--green-stamp); }
+  .badge-tipo.Saida, .badge-tipo.Saída { background: #f6e6e4; color: var(--red-stamp); }
+
+  .empty { color: var(--ink-soft); font-style: italic; padding: 20px 0; text-align: center; }
+
+  .toast {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: var(--navy);
+    color: #fff;
+    padding: 12px 18px;
+    border-radius: 4px;
+    font-size: 14px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.2);
+    display: none;
+    z-index: 50;
+  }
+
+  @media (max-width: 600px) {
+    main { padding: 14px; }
+    .kpi-card .value { font-size: 20px; }
+  }
+</style>
+</head>
+<body>
+
+  <header class="topbar">
+    <h1>Livro-Caixa</h1>
+    <span>controle financeiro pessoal</span>
+  </header>
+
+  <div id="config-warning">
+    ⚠️ Defina a URL do seu App da Web na constante <code>APP_URL</code>, no final deste arquivo HTML, antes de usar.
+  </div>
+
+  <nav class="tabs">
+    <button class="tab-btn active" data-view="dashboard">Dashboard</button>
+    <button class="tab-btn" data-view="movimentacoes">Movimentações</button>
+    <button class="tab-btn" data-view="lancamentos">Lançamentos</button>
+    <button class="tab-btn" data-view="recorrentes">Custos Recorrentes</button>
+    <button class="tab-btn" data-view="config">Configurações</button>
+  </nav>
+
+  <main>
+
+    <!-- DASHBOARD -->
+    <section id="view-dashboard" class="view active">
+      <div class="kpi-grid" id="kpi-grid">
+        <div class="empty">Carregando indicadores…</div>
+      </div>
+      <div class="card">
+        <h2>Últimas movimentações</h2>
+        <table>
+          <thead><tr><th>Data</th><th>Lançamento</th><th>Tipo</th><th>Valor</th><th>Situação</th></tr></thead>
+          <tbody id="dash-movs-body"><tr><td colspan="5" class="empty">Carregando…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- MOVIMENTAÇÕES -->
+    <section id="view-movimentacoes" class="view">
+      <div class="card">
+        <h2>Nova movimentação</h2>
+        <div class="row">
+          <div class="field">
+            <label>Lançamento</label>
+            <select id="mov-lancamento"></select>
+          </div>
+          <div class="field">
+            <label>Data</label>
+            <input type="date" id="mov-data">
+          </div>
+          <div class="field">
+            <label>Valor (R$)</label>
+            <input type="number" step="0.01" id="mov-valor" placeholder="0,00">
+          </div>
+          <div class="field">
+            <label>Situação</label>
+            <select id="mov-pago">
+              <option value="false">Não pago</option>
+              <option value="true">Pago</option>
+            </select>
+          </div>
+          <button class="btn" onclick="salvarMovimentacao()">Adicionar</button>
+        </div>
+        <p style="margin-top:10px; font-size:13px; color:var(--ink-soft)">
+          Não achou o lançamento? <a href="#" onclick="irParaLancamentos(event)">Cadastre um novo tipo de lançamento</a> primeiro.
+        </p>
+      </div>
+
+      <div class="card">
+        <h2>Movimentações cadastradas</h2>
+        <table>
+          <thead><tr><th>Data</th><th>Lançamento</th><th>Tipo</th><th>Categoria</th><th>Valor</th><th>Situação</th></tr></thead>
+          <tbody id="movs-body"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- LANÇAMENTOS -->
+    <section id="view-lancamentos" class="view">
+      <div class="card">
+        <h2>Novo lançamento</h2>
+        <div class="row">
+          <div class="field">
+            <label>Nome</label>
+            <input type="text" id="lanc-nome" placeholder="Ex: Salário, Aluguel, Mercado...">
+          </div>
+          <div class="field">
+            <label>Tipo</label>
+            <select id="lanc-tipo">
+              <option value="Entrada">Entrada</option>
+              <option value="Saida">Saída</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Categoria</label>
+            <input type="text" id="lanc-categoria" placeholder="Ex: Moradia, Lazer, Renda...">
+          </div>
+          <button class="btn" onclick="salvarLancamento()">Cadastrar</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Lançamentos cadastrados</h2>
+        <table>
+          <thead><tr><th>Nome</th><th>Tipo</th><th>Categoria</th></tr></thead>
+          <tbody id="lancs-body"><tr><td colspan="3" class="empty">Carregando…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- CUSTOS RECORRENTES -->
+    <section id="view-recorrentes" class="view">
+      <div class="card">
+        <h2>Novo custo recorrente</h2>
+        <div class="row">
+          <div class="field">
+            <label>Lançamento</label>
+            <select id="rec-lancamento"></select>
+          </div>
+          <div class="field">
+            <label>Valor (R$)</label>
+            <input type="number" step="0.01" id="rec-valor">
+          </div>
+          <div class="field">
+            <label>Data início</label>
+            <input type="date" id="rec-inicio">
+          </div>
+          <div class="field">
+            <label>Dia vencimento</label>
+            <input type="number" min="1" max="31" id="rec-dia">
+          </div>
+          <div class="field">
+            <label>Ativo</label>
+            <select id="rec-ativo">
+              <option value="true">Sim</option>
+              <option value="false">Não</option>
+            </select>
+          </div>
+          <button class="btn" onclick="salvarRecorrente()">Adicionar</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Custos recorrentes</h2>
+        <button class="btn gold" onclick="lancarPendentes()">Lançar recorrentes pendentes deste mês</button>
+        <table>
+          <thead><tr><th>Lançamento</th><th>Valor</th><th>Dia venc.</th><th>Próx. vencimento</th><th>Ativo</th></tr></thead>
+          <tbody id="recs-body"><tr><td colspan="5" class="empty">Carregando…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- CONFIG -->
+    <section id="view-config" class="view">
+      <div class="card">
+        <h2>Configurações</h2>
+        <div class="row">
+          <div class="field">
+            <label>Renda mensal (R$)</label>
+            <input type="number" step="0.01" id="cfg-renda">
+          </div>
+          <div class="field">
+            <label>Saldo inicial (R$)</label>
+            <input type="number" step="0.01" id="cfg-saldo">
+          </div>
+          <button class="btn" onclick="salvarConfiguracao()">Salvar</button>
+        </div>
+        <p style="margin-top:14px; font-size:13px; color:var(--ink-soft)">
+          O saldo inicial é o valor que você tem em caixa/conta hoje, antes das movimentações já pagas registradas no sistema.
+          A renda mensal é usada para calcular o percentual de renda gasta e o gasto permitido até hoje.
+        </p>
+      </div>
+    </section>
+
+  </main>
+
+  <div class="toast" id="toast"></div>
+
+<script>
+  /* ============================================================
+   * COLE AQUI a URL do seu App da Web do Apps Script (termina em /exec)
+   * Extensões → Apps Script → Implantar → Gerenciar implantações → copiar URL
+   * ============================================================ */
+  const APP_URL = 'https://script.google.com/macros/s/AKfycby8IVLxMCQwfjkjcwksrDNd6qUysIqKm_np3_KcxFmXuq6LvvXYCG6n72X8kZZnqTbl/exec';
+
+  if (APP_URL.indexOf('COLE_AQUI') === 0) {
+    document.getElementById('config-warning').style.display = 'block';
+  }
+
+  /* ---------- cliente JSONP (evita bloqueio de CORS) ---------- */
+  let jsonpContador = 0;
+  function chamarAPI(action, params) {
+    return new Promise((resolve, reject) => {
+      const nomeCallback = 'cb_' + (jsonpContador++) + '_' + Date.now();
+      const url = new URL(APP_URL);
+      url.searchParams.set('action', action);
+      Object.keys(params || {}).forEach(k => url.searchParams.set(k, params[k]));
+      url.searchParams.set('callback', nomeCallback);
+
+      const script = document.createElement('script');
+      window[nomeCallback] = function (resposta) {
+        delete window[nomeCallback];
+        script.remove();
+        if (resposta.ok) resolve(resposta.dados);
+        else reject(new Error(resposta.erro));
+      };
+      script.onerror = () => {
+        delete window[nomeCallback];
+        script.remove();
+        reject(new Error('Não foi possível conectar à API. Confira a URL em APP_URL.'));
+      };
+      script.src = url.toString();
+      document.body.appendChild(script);
+    });
+  }
+
+  let lancamentosCache = [];
+
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => trocarView(btn.dataset.view));
+  });
+
+  function trocarView(nome) {
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('view-' + nome).classList.add('active');
+    document.querySelector('.tab-btn[data-view="' + nome + '"]').classList.add('active');
+  }
+
+  function irParaLancamentos(e) {
+    e.preventDefault();
+    trocarView('lancamentos');
+  }
+
+  function toast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.style.display = 'block';
+    setTimeout(() => (t.style.display = 'none'), 3000);
+  }
+
+  function moeda(v) {
+    return (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  }
+
+  function dataBR(iso) {
+    const [a, m, d] = iso.split('-');
+    return d + '/' + m + '/' + a;
+  }
+
+  /* ---------- carga inicial ---------- */
+  window.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('mov-data').valueAsDate = new Date();
+    document.getElementById('rec-inicio').valueAsDate = new Date();
+    carregarLancamentos();
+    carregarMovimentacoes();
+    carregarRecorrentes();
+    carregarDashboard();
+    carregarConfig();
+  });
+
+  /* ---------- LANÇAMENTOS ---------- */
+  async function carregarLancamentos() {
+    try {
+      const lancs = await chamarAPI('getLancamentos');
+      lancamentosCache = lancs;
+      renderLancamentos(lancs);
+      preencherSelectLancamentos('mov-lancamento', lancs);
+      preencherSelectLancamentos('rec-lancamento', lancs);
+    } catch (err) {
+      toast(err.message);
+    }
+  }
+
+  function preencherSelectLancamentos(idSelect, lancs) {
+    const sel = document.getElementById(idSelect);
+    sel.innerHTML = lancs
+      .map(l => '<option value="' + l.ID + '">' + l.Nome + ' (' + l.Tipo + ' — ' + l.Categoria + ')</option>')
+      .join('');
+  }
+
+  function renderLancamentos(lancs) {
+    const body = document.getElementById('lancs-body');
+    if (!lancs.length) {
+      body.innerHTML = '<tr><td colspan="3" class="empty">Nenhum lançamento cadastrado ainda.</td></tr>';
+      return;
+    }
+    body.innerHTML = lancs
+      .map(
+        l =>
+          '<tr><td>' + l.Nome + '</td><td><span class="badge-tipo ' + l.Tipo + '">' + l.Tipo + '</span></td><td>' + l.Categoria + '</td></tr>'
+      )
+      .join('');
+  }
+
+  async function salvarLancamento() {
+    const nome = document.getElementById('lanc-nome').value.trim();
+    const tipo = document.getElementById('lanc-tipo').value;
+    const categoria = document.getElementById('lanc-categoria').value.trim();
+    if (!nome || !categoria) return toast('Preencha nome e categoria.');
+
+    try {
+      await chamarAPI('addLancamento', { nome, tipo, categoria });
+      toast('Lançamento cadastrado!');
+      document.getElementById('lanc-nome').value = '';
+      document.getElementById('lanc-categoria').value = '';
+      carregarLancamentos();
+    } catch (err) {
+      toast(err.message);
+    }
+  }
+
+  /* ---------- MOVIMENTAÇÕES ---------- */
+  async function carregarMovimentacoes() {
+    try {
+      const movs = await chamarAPI('getMovimentacoes');
+      renderMovimentacoes(movs);
+    } catch (err) {
+      toast(err.message);
+    }
+  }
+
+  function renderMovimentacoes(movs) {
+    const body = document.getElementById('movs-body');
+    if (!movs.length) {
+      body.innerHTML = '<tr><td colspan="6" class="empty">Nenhuma movimentação registrada ainda.</td></tr>';
+    } else {
+      body.innerHTML = movs
+        .map(
+          m =>
+            '<tr><td>' + dataBR(m.Data) + '</td><td>' + m.NomeLancamento + '</td>' +
+            '<td><span class="badge-tipo ' + m.Tipo + '">' + m.Tipo + '</span></td>' +
+            '<td>' + m.Categoria + '</td><td class="num">' + moeda(m.Valor) + '</td>' +
+            '<td><span class="stamp ' + (m.Pago ? 'pago' : 'pendente') + '" onclick="alternarPagamento(' + m.ID + ',' + (!m.Pago) + ')">' +
+            (m.Pago ? 'PAGO' : 'PENDENTE') + '</span></td></tr>'
+        )
+        .join('');
+    }
+    renderDashMovs(movs.slice(0, 8));
+  }
+
+  function renderDashMovs(movs) {
+    const body = document.getElementById('dash-movs-body');
+    if (!movs.length) {
+      body.innerHTML = '<tr><td colspan="5" class="empty">Nenhuma movimentação registrada ainda.</td></tr>';
+      return;
+    }
+    body.innerHTML = movs
+      .map(
+        m =>
+          '<tr><td>' + dataBR(m.Data) + '</td><td>' + m.NomeLancamento + '</td>' +
+          '<td><span class="badge-tipo ' + m.Tipo + '">' + m.Tipo + '</span></td>' +
+          '<td class="num">' + moeda(m.Valor) + '</td>' +
+          '<td><span class="stamp ' + (m.Pago ? 'pago' : 'pendente') + '">' + (m.Pago ? 'PAGO' : 'PENDENTE') + '</span></td></tr>'
+      )
+      .join('');
+  }
+
+  async function salvarMovimentacao() {
+    const lancamentoId = document.getElementById('mov-lancamento').value;
+    const data = document.getElementById('mov-data').value;
+    const valor = document.getElementById('mov-valor').value;
+    const pago = document.getElementById('mov-pago').value === 'true';
+    if (!lancamentoId) return toast('Cadastre um lançamento primeiro.');
+    if (!data || !valor) return toast('Preencha data e valor.');
+
+    try {
+      await chamarAPI('addMovimentacao', { lancamentoId, data, valor, pago, origem: 'Manual' });
+      toast('Movimentação adicionada!');
+      document.getElementById('mov-valor').value = '';
+      carregarMovimentacoes();
+      carregarDashboard();
+    } catch (err) {
+      toast(err.message);
+    }
+  }
+
+  async function alternarPagamento(id, novoPago) {
+    try {
+      await chamarAPI('atualizarPagamento', { id, pago: novoPago });
+      carregarMovimentacoes();
+      carregarDashboard();
+    } catch (err) {
+      toast(err.message);
+    }
+  }
+
+  /* ---------- CUSTOS RECORRENTES ---------- */
+  async function carregarRecorrentes() {
+    try {
+      const recs = await chamarAPI('getRecorrentes');
+      renderRecorrentes(recs);
+    } catch (err) {
+      toast(err.message);
+    }
+  }
+
+  function renderRecorrentes(recs) {
+    const body = document.getElementById('recs-body');
+    if (!recs.length) {
+      body.innerHTML = '<tr><td colspan="5" class="empty">Nenhum custo recorrente cadastrado ainda.</td></tr>';
+      return;
+    }
+    body.innerHTML = recs
+      .map(
+        r =>
+          '<tr><td>' + r.NomeLancamento + '</td><td class="num">' + moeda(r.Valor) + '</td><td>' + r.DiaVencimento + '</td>' +
+          '<td>' + dataBR(r.ProximoVencimento) + '</td><td>' +
+          '<span class="stamp ' + (r.Ativo ? 'pago' : 'pendente') + '" onclick="alternarAtivo(' + r.ID + ',' + (!r.Ativo) + ')">' +
+          (r.Ativo ? 'ATIVO' : 'INATIVO') + '</span></td></tr>'
+      )
+      .join('');
+  }
+
+  async function salvarRecorrente() {
+    const lancamentoId = document.getElementById('rec-lancamento').value;
+    const valor = document.getElementById('rec-valor').value;
+    const dataInicio = document.getElementById('rec-inicio').value;
+    const diaVencimento = document.getElementById('rec-dia').value;
+    const ativo = document.getElementById('rec-ativo').value === 'true';
+    if (!lancamentoId) return toast('Cadastre um lançamento primeiro.');
+    if (!valor || !dataInicio || !diaVencimento) return toast('Preencha valor, data de início e dia de vencimento.');
+
+    try {
+      await chamarAPI('addRecorrente', { lancamentoId, valor, dataInicio, diaVencimento, ativo });
+      toast('Custo recorrente cadastrado!');
+      carregarRecorrentes();
+    } catch (err) {
+      toast(err.message);
+    }
+  }
+
+  async function alternarAtivo(id, novoAtivo) {
+    try {
+      await chamarAPI('atualizarAtivoRecorrente', { id, ativo: novoAtivo });
+      carregarRecorrentes();
+    } catch (err) {
+      toast(err.message);
+    }
+  }
+
+  async function lancarPendentes() {
+    try {
+      const msg = await chamarAPI('lancarRecorrentesPendentes');
+      toast(msg);
+      carregarMovimentacoes();
+      carregarRecorrentes();
+      carregarDashboard();
+    } catch (err) {
+      toast(err.message);
+    }
+  }
+
+  /* ---------- DASHBOARD ---------- */
+  async function carregarDashboard() {
+    try {
+      const d = await chamarAPI('getDashboard');
+      renderDashboard(d);
+    } catch (err) {
+      toast(err.message);
+    }
+  }
+
+  function renderDashboard(d) {
+    const grid = document.getElementById('kpi-grid');
+    grid.innerHTML =
+      kpiCard('Saldo atual', moeda(d.saldoAtual), d.saldoAtual >= 0) +
+      kpiCard('Saldo previsto', moeda(d.saldoPrevisto), d.saldoPrevisto >= 0) +
+      kpiCard('Gasto sugerido / dia', moeda(d.gastoSugerido) + ' <small>(' + d.diasRestantes + ' dias)</small>', d.gastoSugerido >= 0) +
+      kpiCard('% da renda gasta no mês', d.percentualRendaGasta.toFixed(1) + '%', d.percentualRendaGasta <= 100) +
+      kpiCard('Gasto permitido até hoje', moeda(d.gastoPermitidoAteHoje), true);
+  }
+
+  function kpiCard(label, value, positivo) {
+    return (
+      '<div class="kpi-card ' + (positivo ? 'positive' : 'negative') + '">' +
+      '<div class="label">' + label + '</div>' +
+      '<div class="value num">' + value + '</div></div>'
+    );
+  }
+
+  /* ---------- CONFIG ---------- */
+  async function carregarConfig() {
+    try {
+      const cfg = await chamarAPI('getConfig');
+      document.getElementById('cfg-renda').value = cfg.RendaMensal || 0;
+      document.getElementById('cfg-saldo').value = cfg.SaldoInicial || 0;
+    } catch (err) {
+      toast(err.message);
+    }
+  }
+
+  async function salvarConfiguracao() {
+    const rendaMensal = document.getElementById('cfg-renda').value;
+    const saldoInicial = document.getElementById('cfg-saldo').value;
+    try {
+      await chamarAPI('salvarConfig', { rendaMensal, saldoInicial });
+      toast('Configurações salvas!');
+      carregarDashboard();
+    } catch (err) {
+      toast(err.message);
+    }
+  }
+</script>
+</body>
+</html>
