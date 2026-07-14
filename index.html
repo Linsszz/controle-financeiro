@@ -190,6 +190,24 @@
 
   .empty { color: var(--ink-soft); font-style: italic; padding: 20px 0; text-align: center; }
 
+  .btn-sm {
+    padding: 5px 10px;
+    font-size: 12px;
+    border-radius: 3px;
+  }
+  td.acoes { white-space: nowrap; }
+  td.acoes button + button { margin-left: 6px; }
+  td input[type="date"], td input[type="number"], td select {
+    font-family: 'Inter', sans-serif;
+    padding: 6px 8px;
+    border: 1px solid var(--paper-line);
+    border-radius: 3px;
+    background: #fffdf8;
+    font-size: 13px;
+    width: 100%;
+    min-width: 90px;
+  }
+
   .toast {
     position: fixed;
     bottom: 20px;
@@ -324,8 +342,8 @@
       <div class="card">
         <h2>Movimentações cadastradas</h2>
         <table>
-          <thead><tr><th>Data</th><th>Lançamento</th><th>Tipo</th><th>Categoria</th><th>Valor</th><th>Situação</th></tr></thead>
-          <tbody id="movs-body"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
+          <thead><tr><th>Data</th><th>Lançamento</th><th>Tipo</th><th>Categoria</th><th>Valor</th><th>Situação</th><th>Ações</th></tr></thead>
+          <tbody id="movs-body"><tr><td colspan="7" class="empty">Carregando…</td></tr></tbody>
         </table>
       </div>
     </section>
@@ -470,6 +488,7 @@
   }
 
   let lancamentosCache = [];
+  let movimentacoesCache = [];
 
   document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => trocarView(btn.dataset.view));
@@ -569,6 +588,7 @@
   async function carregarMovimentacoes() {
     try {
       const movs = await chamarAPI('getMovimentacoes');
+      movimentacoesCache = movs;
       renderMovimentacoes(movs);
     } catch (err) {
       toast(err.message);
@@ -578,20 +598,85 @@
   function renderMovimentacoes(movs) {
     const body = document.getElementById('movs-body');
     if (!movs.length) {
-      body.innerHTML = '<tr><td colspan="6" class="empty">Nenhuma movimentação registrada ainda.</td></tr>';
+      body.innerHTML = '<tr><td colspan="7" class="empty">Nenhuma movimentação registrada ainda.</td></tr>';
     } else {
-      body.innerHTML = movs
-        .map(
-          m =>
-            '<tr><td>' + dataBR(m.Data) + '</td><td>' + m.NomeLancamento + '</td>' +
-            '<td><span class="badge-tipo ' + m.Tipo + '">' + m.Tipo + '</span></td>' +
-            '<td>' + m.Categoria + '</td><td class="num">' + moeda(m.Valor) + '</td>' +
-            '<td><span class="stamp ' + (m.Pago ? 'pago' : 'pendente') + '" onclick="alternarPagamento(' + m.ID + ',' + (!m.Pago) + ')">' +
-            (m.Pago ? 'PAGO' : 'PENDENTE') + '</span></td></tr>'
-        )
-        .join('');
+      body.innerHTML = movs.map(m => linhaMovimentacaoView(m)).join('');
     }
     renderDashMovs(movs.slice(0, 8));
+  }
+
+  function linhaMovimentacaoView(m) {
+    return (
+      '<tr id="mov-row-' + m.ID + '">' +
+      '<td>' + dataBR(m.Data) + '</td><td>' + m.NomeLancamento + '</td>' +
+      '<td><span class="badge-tipo ' + m.Tipo + '">' + m.Tipo + '</span></td>' +
+      '<td>' + m.Categoria + '</td><td class="num">' + moeda(m.Valor) + '</td>' +
+      '<td><span class="stamp ' + (m.Pago ? 'pago' : 'pendente') + '" onclick="alternarPagamento(' + m.ID + ',' + (!m.Pago) + ')">' +
+      (m.Pago ? 'PAGO' : 'PENDENTE') + '</span></td>' +
+      '<td class="acoes">' +
+      '<button class="btn ghost btn-sm" onclick="iniciarEdicaoMovimentacao(' + m.ID + ')">Editar</button>' +
+      '<button class="btn ghost btn-sm" onclick="excluirMovimentacao(' + m.ID + ')">Excluir</button>' +
+      '</td></tr>'
+    );
+  }
+
+  function linhaMovimentacaoEdicao(m) {
+    return (
+      '<tr id="mov-row-' + m.ID + '">' +
+      '<td><input type="date" id="edit-data-' + m.ID + '" value="' + m.Data + '"></td>' +
+      '<td>' + m.NomeLancamento + '</td>' +
+      '<td><span class="badge-tipo ' + m.Tipo + '">' + m.Tipo + '</span></td>' +
+      '<td>' + m.Categoria + '</td>' +
+      '<td><input type="number" step="0.01" id="edit-valor-' + m.ID + '" value="' + m.Valor + '"></td>' +
+      '<td><select id="edit-pago-' + m.ID + '">' +
+      '<option value="true"' + (m.Pago ? ' selected' : '') + '>Pago</option>' +
+      '<option value="false"' + (!m.Pago ? ' selected' : '') + '>Não pago</option>' +
+      '</select></td>' +
+      '<td class="acoes">' +
+      '<button class="btn btn-sm" onclick="salvarEdicaoMovimentacao(' + m.ID + ')">Salvar</button>' +
+      '<button class="btn ghost btn-sm" onclick="cancelarEdicaoMovimentacao(' + m.ID + ')">Cancelar</button>' +
+      '</td></tr>'
+    );
+  }
+
+  function iniciarEdicaoMovimentacao(id) {
+    const m = movimentacoesCache.find(x => String(x.ID) === String(id));
+    if (!m) return;
+    document.getElementById('mov-row-' + id).outerHTML = linhaMovimentacaoEdicao(m);
+  }
+
+  function cancelarEdicaoMovimentacao(id) {
+    const m = movimentacoesCache.find(x => String(x.ID) === String(id));
+    if (!m) return;
+    document.getElementById('mov-row-' + id).outerHTML = linhaMovimentacaoView(m);
+  }
+
+  async function salvarEdicaoMovimentacao(id) {
+    const data = document.getElementById('edit-data-' + id).value;
+    const valor = document.getElementById('edit-valor-' + id).value;
+    const pago = document.getElementById('edit-pago-' + id).value === 'true';
+    if (!data || !valor) return toast('Preencha data e valor.');
+
+    try {
+      await chamarAPI('editarMovimentacao', { id, data, valor, pago });
+      toast('Movimentação atualizada!');
+      carregarMovimentacoes();
+      carregarDashboard();
+    } catch (err) {
+      toast(err.message);
+    }
+  }
+
+  async function excluirMovimentacao(id) {
+    if (!confirm('Tem certeza que deseja excluir esta movimentação?')) return;
+    try {
+      await chamarAPI('excluirMovimentacao', { id });
+      toast('Movimentação excluída!');
+      carregarMovimentacoes();
+      carregarDashboard();
+    } catch (err) {
+      toast(err.message);
+    }
   }
 
   function renderDashMovs(movs) {
