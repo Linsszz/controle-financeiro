@@ -163,6 +163,7 @@
     font-size: 14px;
   }
   tbody tr:hover { background: #fbf8f0; }
+  tbody tr.linha-clicavel { cursor: pointer; }
 
   .stamp {
     display: inline-block;
@@ -190,23 +191,48 @@
 
   .empty { color: var(--ink-soft); font-style: italic; padding: 20px 0; text-align: center; }
 
-  .btn-sm {
-    padding: 5px 10px;
+  .btn-small {
+    background: transparent;
+    color: var(--navy);
+    border: 1px solid var(--navy);
+    padding: 5px 12px;
+    border-radius: 3px;
     font-size: 12px;
-    border-radius: 3px;
-  }
-  td.acoes { white-space: nowrap; }
-  td.acoes button + button { margin-left: 6px; }
-  td input[type="date"], td input[type="number"], td select {
     font-family: 'Inter', sans-serif;
-    padding: 6px 8px;
-    border: 1px solid var(--paper-line);
-    border-radius: 3px;
-    background: #fffdf8;
-    font-size: 13px;
-    width: 100%;
-    min-width: 90px;
+    cursor: pointer;
   }
+  .btn-small:hover { background: var(--navy); color: #fff; }
+
+  .campo-alterado {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    background: #eef1ea;
+    color: var(--navy);
+    padding: 2px 8px;
+    border-radius: 3px;
+  }
+
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 20, 20, 0.55);
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    padding: 16px;
+  }
+  .modal-overlay.active { display: flex; }
+  .modal-box {
+    background: var(--card);
+    border-radius: 6px;
+    padding: 24px;
+    width: 100%;
+    max-width: 420px;
+    border: 1px solid var(--paper-line);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+  }
+  .modal-box .field { margin-bottom: 4px; }
 
   .toast {
     position: fixed;
@@ -266,6 +292,10 @@
       bottom: 14px;
       text-align: center;
     }
+
+    .modal-box { padding: 18px; }
+    .modal-box .row { flex-direction: row; justify-content: flex-end; }
+    .modal-box .row button.btn { width: auto; }
   }
 
   @media (max-width: 380px) {
@@ -288,7 +318,9 @@
     <button class="tab-btn active" data-view="dashboard">Dashboard</button>
     <button class="tab-btn" data-view="movimentacoes">Movimentações</button>
     <button class="tab-btn" data-view="lancamentos">Lançamentos</button>
+    <button class="tab-btn" data-view="cartao">Cartão de Crédito</button>
     <button class="tab-btn" data-view="recorrentes">Custos Recorrentes</button>
+    <button class="tab-btn" data-view="historico">Histórico de Alterações</button>
     <button class="tab-btn" data-view="config">Configurações</button>
   </nav>
 
@@ -342,8 +374,8 @@
       <div class="card">
         <h2>Movimentações cadastradas</h2>
         <table>
-          <thead><tr><th>Data</th><th>Lançamento</th><th>Tipo</th><th>Categoria</th><th>Valor</th><th>Situação</th><th>Ações</th></tr></thead>
-          <tbody id="movs-body"><tr><td colspan="7" class="empty">Carregando…</td></tr></tbody>
+          <thead><tr><th>Data</th><th>Lançamento</th><th>Tipo</th><th>Categoria</th><th>Valor</th><th>Situação</th></tr></thead>
+          <tbody id="movs-body"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
         </table>
       </div>
     </section>
@@ -366,7 +398,8 @@
           </div>
           <div class="field">
             <label>Categoria</label>
-            <input type="text" id="lanc-categoria" placeholder="Ex: Moradia, Lazer, Renda...">
+            <input type="text" id="lanc-categoria" list="lista-categorias" placeholder="Ex: Moradia, Lazer, Renda..." autocomplete="off">
+            <datalist id="lista-categorias"></datalist>
           </div>
           <button class="btn" onclick="salvarLancamento()">Cadastrar</button>
         </div>
@@ -374,9 +407,107 @@
 
       <div class="card">
         <h2>Lançamentos cadastrados</h2>
+        <p style="font-size:13px; color:var(--ink-soft); margin-bottom:10px;">
+          Clique em <strong>Editar</strong> para alterar nome, tipo ou categoria. Movimentações e
+          custos recorrentes que usam esse lançamento passam a exibir os novos dados
+          automaticamente, e cada alteração fica registrada no Histórico de Alterações.
+        </p>
         <table>
-          <thead><tr><th>Nome</th><th>Tipo</th><th>Categoria</th></tr></thead>
-          <tbody id="lancs-body"><tr><td colspan="3" class="empty">Carregando…</td></tr></tbody>
+          <thead><tr><th>Nome</th><th>Tipo</th><th>Categoria</th><th>Ação</th></tr></thead>
+          <tbody id="lancs-body"><tr><td colspan="4" class="empty">Carregando…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- CARTÃO DE CRÉDITO -->
+    <section id="view-cartao" class="view">
+      <div class="card">
+        <h2>Novo cartão</h2>
+        <div class="row">
+          <div class="field">
+            <label>Nome do cartão</label>
+            <input type="text" id="cartao-nome" placeholder="Ex: Nubank, Inter...">
+          </div>
+          <div class="field">
+            <label>Limite total (R$)</label>
+            <input type="number" step="0.01" id="cartao-limite">
+          </div>
+          <div class="field">
+            <label>Dia de fechamento</label>
+            <input type="number" min="1" max="31" id="cartao-fechamento" placeholder="Ex: 20">
+          </div>
+          <div class="field">
+            <label>Dia de vencimento</label>
+            <input type="number" min="1" max="31" id="cartao-vencimento" placeholder="Ex: 28">
+          </div>
+          <button class="btn" onclick="salvarCartao()">Cadastrar</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Cartões cadastrados</h2>
+        <table>
+          <thead><tr><th>Cartão</th><th>Limite total</th><th>Utilizado</th><th>Disponível</th><th>Fecha</th><th>Vence</th></tr></thead>
+          <tbody id="cartoes-body"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h2>Nova compra parcelada</h2>
+        <div class="row">
+          <div class="field">
+            <label>Cartão</label>
+            <select id="compra-cartao"></select>
+          </div>
+          <div class="field">
+            <label>Lançamento</label>
+            <select id="compra-lancamento"></select>
+          </div>
+          <div class="field">
+            <label>Descrição</label>
+            <input type="text" id="compra-descricao" placeholder="Ex: Notebook, Geladeira...">
+          </div>
+        </div>
+        <div class="row" style="margin-top:10px;">
+          <div class="field">
+            <label>Valor total (R$)</label>
+            <input type="number" step="0.01" id="compra-valor">
+          </div>
+          <div class="field">
+            <label>Nº de parcelas</label>
+            <input type="number" min="1" max="60" id="compra-parcelas" value="1">
+          </div>
+          <div class="field">
+            <label>Data da compra</label>
+            <input type="date" id="compra-data">
+          </div>
+          <button class="btn" onclick="salvarCompraParcelada()">Lançar compra</button>
+        </div>
+        <p style="margin-top:10px; font-size:13px; color:var(--ink-soft)">
+          Ao lançar, todas as parcelas já são criadas em Movimentações, com vencimento calculado
+          a partir do fechamento/vencimento do cartão escolhido.
+        </p>
+      </div>
+
+      <div class="card">
+        <h2>Compras parceladas</h2>
+        <table>
+          <thead><tr><th>Descrição</th><th>Cartão</th><th>Valor total</th><th>Parcelas</th><th>Valor/parcela</th><th>Data da compra</th></tr></thead>
+          <tbody id="compras-body"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- HISTÓRICO DE ALTERAÇÕES -->
+    <section id="view-historico" class="view">
+      <div class="card">
+        <h2>Histórico de alterações</h2>
+        <p style="font-size:13px; color:var(--ink-soft); margin-bottom:10px;">
+          Log permanente de todas as edições feitas em lançamentos — nada aqui é apagado ou sobrescrito.
+        </p>
+        <table>
+          <thead><tr><th>Data e hora</th><th>Lançamento</th><th>Campo</th><th>Valor anterior</th><th>Novo valor</th><th>Tipo</th></tr></thead>
+          <tbody id="historico-body"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
         </table>
       </div>
     </section>
@@ -447,6 +578,67 @@
 
   </main>
 
+  <!-- MODAL: editar lançamento -->
+  <div class="modal-overlay" id="modal-editar" onclick="if(event.target===this) fecharModalEdicao()">
+    <div class="modal-box">
+      <h2>Editar lançamento</h2>
+      <input type="hidden" id="edit-lanc-id">
+      <div class="field" style="margin-top:14px;">
+        <label>Nome</label>
+        <input type="text" id="edit-lanc-nome">
+      </div>
+      <div class="field" style="margin-top:10px;">
+        <label>Tipo</label>
+        <select id="edit-lanc-tipo">
+          <option value="Entrada">Entrada</option>
+          <option value="Saida">Saída</option>
+        </select>
+      </div>
+      <div class="field" style="margin-top:10px;">
+        <label>Categoria</label>
+        <input type="text" id="edit-lanc-categoria" list="lista-categorias" autocomplete="off">
+      </div>
+      <div class="row" style="justify-content:flex-end; margin-top:18px;">
+        <button class="btn ghost" onclick="fecharModalEdicao()">Cancelar</button>
+        <button class="btn" onclick="salvarEdicaoLancamento()">Salvar alterações</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: editar/excluir movimentação -->
+  <div class="modal-overlay" id="modal-editar-mov" onclick="if(event.target===this) fecharModalMovimentacao()">
+    <div class="modal-box">
+      <h2>Editar movimentação</h2>
+      <input type="hidden" id="edit-mov-id">
+      <div class="field" style="margin-top:14px;">
+        <label>Lançamento</label>
+        <select id="edit-mov-lancamento"></select>
+      </div>
+      <div class="field" style="margin-top:10px;">
+        <label>Data</label>
+        <input type="date" id="edit-mov-data">
+      </div>
+      <div class="field" style="margin-top:10px;">
+        <label>Valor (R$)</label>
+        <input type="number" step="0.01" id="edit-mov-valor">
+      </div>
+      <div class="field" style="margin-top:10px;">
+        <label>Situação</label>
+        <select id="edit-mov-pago">
+          <option value="false">Não pago</option>
+          <option value="true">Pago</option>
+        </select>
+      </div>
+      <div class="row" style="justify-content:space-between; margin-top:18px;">
+        <button class="btn ghost" style="border-color:var(--red-stamp); color:var(--red-stamp);" onclick="excluirMovimentacaoAtual()">Excluir</button>
+        <div class="row" style="width:auto;">
+          <button class="btn ghost" onclick="fecharModalMovimentacao()">Cancelar</button>
+          <button class="btn" onclick="salvarEdicaoMovimentacao()">Salvar alterações</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="toast" id="toast"></div>
 
 <script>
@@ -488,7 +680,6 @@
   }
 
   let lancamentosCache = [];
-  let movimentacoesCache = [];
 
   document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => trocarView(btn.dataset.view));
@@ -526,11 +717,15 @@
   window.addEventListener('DOMContentLoaded', () => {
     document.getElementById('mov-data').valueAsDate = new Date();
     document.getElementById('rec-inicio').valueAsDate = new Date();
+    document.getElementById('compra-data').valueAsDate = new Date();
     carregarLancamentos();
     carregarMovimentacoes();
     carregarRecorrentes();
     carregarDashboard();
     carregarConfig();
+    carregarHistorico();
+    carregarCartoes();
+    carregarComprasParceladas();
   });
 
   /* ---------- LANÇAMENTOS ---------- */
@@ -541,9 +736,18 @@
       renderLancamentos(lancs);
       preencherSelectLancamentos('mov-lancamento', lancs);
       preencherSelectLancamentos('rec-lancamento', lancs);
+      preencherSelectLancamentos('compra-lancamento', lancs);
+      preencherCategorias(lancs);
     } catch (err) {
       toast(err.message);
     }
+  }
+
+  function preencherCategorias(lancs) {
+    const categorias = [...new Set(lancs.map(l => l.Categoria).filter(Boolean))].sort();
+    document.getElementById('lista-categorias').innerHTML = categorias
+      .map(c => '<option value="' + c + '"></option>')
+      .join('');
   }
 
   function preencherSelectLancamentos(idSelect, lancs) {
@@ -556,13 +760,14 @@
   function renderLancamentos(lancs) {
     const body = document.getElementById('lancs-body');
     if (!lancs.length) {
-      body.innerHTML = '<tr><td colspan="3" class="empty">Nenhum lançamento cadastrado ainda.</td></tr>';
+      body.innerHTML = '<tr><td colspan="4" class="empty">Nenhum lançamento cadastrado ainda.</td></tr>';
       return;
     }
     body.innerHTML = lancs
       .map(
         l =>
-          '<tr><td>' + l.Nome + '</td><td><span class="badge-tipo ' + l.Tipo + '">' + l.Tipo + '</span></td><td>' + l.Categoria + '</td></tr>'
+          '<tr><td>' + l.Nome + '</td><td><span class="badge-tipo ' + l.Tipo + '">' + l.Tipo + '</span></td>' +
+          '<td>' + l.Categoria + '</td><td><button class="btn-small" onclick="abrirModalEdicao(' + l.ID + ')">Editar</button></td></tr>'
       )
       .join('');
   }
@@ -584,7 +789,82 @@
     }
   }
 
+  /* ---------- EDIÇÃO DE LANÇAMENTO (modal) ---------- */
+
+  function abrirModalEdicao(id) {
+    const lanc = lancamentosCache.find(l => Number(l.ID) === Number(id));
+    if (!lanc) return toast('Lançamento não encontrado.');
+    document.getElementById('edit-lanc-id').value = lanc.ID;
+    document.getElementById('edit-lanc-nome').value = lanc.Nome;
+    document.getElementById('edit-lanc-tipo').value = lanc.Tipo;
+    document.getElementById('edit-lanc-categoria').value = lanc.Categoria;
+    document.getElementById('modal-editar').classList.add('active');
+  }
+
+  function fecharModalEdicao() {
+    document.getElementById('modal-editar').classList.remove('active');
+  }
+
+  async function salvarEdicaoLancamento() {
+    const id = document.getElementById('edit-lanc-id').value;
+    const nome = document.getElementById('edit-lanc-nome').value.trim();
+    const tipo = document.getElementById('edit-lanc-tipo').value;
+    const categoria = document.getElementById('edit-lanc-categoria').value.trim();
+
+    if (!nome) return toast('O nome não pode ficar em branco.');
+    if (!categoria) return toast('A categoria não pode ficar em branco.');
+    if (tipo !== 'Entrada' && tipo !== 'Saida') return toast('Tipo inválido.');
+
+    try {
+      const msg = await chamarAPI('editarLancamento', { id, nome, tipo, categoria });
+      toast(msg);
+      fecharModalEdicao();
+      // atualiza tudo que exibe nome/tipo/categoria do lançamento
+      carregarLancamentos();
+      carregarMovimentacoes();
+      carregarRecorrentes();
+      carregarDashboard();
+      carregarHistorico();
+    } catch (err) {
+      toast(err.message);
+    }
+  }
+
+  /* ---------- HISTÓRICO DE ALTERAÇÕES ---------- */
+  async function carregarHistorico() {
+    try {
+      const historico = await chamarAPI('getHistorico');
+      renderHistorico(historico);
+    } catch (err) {
+      toast(err.message);
+    }
+  }
+
+  function renderHistorico(historico) {
+    const body = document.getElementById('historico-body');
+    if (!historico.length) {
+      body.innerHTML = '<tr><td colspan="6" class="empty">Nenhuma alteração registrada ainda.</td></tr>';
+      return;
+    }
+    body.innerHTML = historico
+      .map(
+        h =>
+          '<tr><td>' + dataHoraBR(h.DataHora) + '</td><td>' + h.NomeLancamento + '</td>' +
+          '<td><span class="campo-alterado">' + h.Campo + '</span></td>' +
+          '<td>' + h.ValorAnterior + '</td><td>' + h.ValorNovo + '</td><td>' + h.TipoAlteracao + '</td></tr>'
+      )
+      .join('');
+  }
+
+  function dataHoraBR(dataHoraISO) {
+    // formato recebido: yyyy-MM-dd HH:mm:ss
+    const [dataParte, horaParte] = dataHoraISO.split(' ');
+    return dataBR(dataParte) + ' às ' + (horaParte ? horaParte.slice(0, 5) : '');
+  }
+
   /* ---------- MOVIMENTAÇÕES ---------- */
+  let movimentacoesCache = [];
+
   async function carregarMovimentacoes() {
     try {
       const movs = await chamarAPI('getMovimentacoes');
@@ -598,85 +878,21 @@
   function renderMovimentacoes(movs) {
     const body = document.getElementById('movs-body');
     if (!movs.length) {
-      body.innerHTML = '<tr><td colspan="7" class="empty">Nenhuma movimentação registrada ainda.</td></tr>';
+      body.innerHTML = '<tr><td colspan="6" class="empty">Nenhuma movimentação registrada ainda.</td></tr>';
     } else {
-      body.innerHTML = movs.map(m => linhaMovimentacaoView(m)).join('');
+      body.innerHTML = movs
+        .map(
+          m =>
+            '<tr class="linha-clicavel" onclick="abrirModalMovimentacao(' + m.ID + ')">' +
+            '<td>' + dataBR(m.Data) + '</td><td>' + m.NomeLancamento + '</td>' +
+            '<td><span class="badge-tipo ' + m.Tipo + '">' + m.Tipo + '</span></td>' +
+            '<td>' + m.Categoria + '</td><td class="num">' + moeda(m.Valor) + '</td>' +
+            '<td><span class="stamp ' + (m.Pago ? 'pago' : 'pendente') + '" onclick="event.stopPropagation(); alternarPagamento(' + m.ID + ',' + (!m.Pago) + ')">' +
+            (m.Pago ? 'PAGO' : 'PENDENTE') + '</span></td></tr>'
+        )
+        .join('');
     }
     renderDashMovs(movs.slice(0, 8));
-  }
-
-  function linhaMovimentacaoView(m) {
-    return (
-      '<tr id="mov-row-' + m.ID + '">' +
-      '<td>' + dataBR(m.Data) + '</td><td>' + m.NomeLancamento + '</td>' +
-      '<td><span class="badge-tipo ' + m.Tipo + '">' + m.Tipo + '</span></td>' +
-      '<td>' + m.Categoria + '</td><td class="num">' + moeda(m.Valor) + '</td>' +
-      '<td><span class="stamp ' + (m.Pago ? 'pago' : 'pendente') + '" onclick="alternarPagamento(' + m.ID + ',' + (!m.Pago) + ')">' +
-      (m.Pago ? 'PAGO' : 'PENDENTE') + '</span></td>' +
-      '<td class="acoes">' +
-      '<button class="btn ghost btn-sm" onclick="iniciarEdicaoMovimentacao(' + m.ID + ')">Editar</button>' +
-      '<button class="btn ghost btn-sm" onclick="excluirMovimentacao(' + m.ID + ')">Excluir</button>' +
-      '</td></tr>'
-    );
-  }
-
-  function linhaMovimentacaoEdicao(m) {
-    return (
-      '<tr id="mov-row-' + m.ID + '">' +
-      '<td><input type="date" id="edit-data-' + m.ID + '" value="' + m.Data + '"></td>' +
-      '<td>' + m.NomeLancamento + '</td>' +
-      '<td><span class="badge-tipo ' + m.Tipo + '">' + m.Tipo + '</span></td>' +
-      '<td>' + m.Categoria + '</td>' +
-      '<td><input type="number" step="0.01" id="edit-valor-' + m.ID + '" value="' + m.Valor + '"></td>' +
-      '<td><select id="edit-pago-' + m.ID + '">' +
-      '<option value="true"' + (m.Pago ? ' selected' : '') + '>Pago</option>' +
-      '<option value="false"' + (!m.Pago ? ' selected' : '') + '>Não pago</option>' +
-      '</select></td>' +
-      '<td class="acoes">' +
-      '<button class="btn btn-sm" onclick="salvarEdicaoMovimentacao(' + m.ID + ')">Salvar</button>' +
-      '<button class="btn ghost btn-sm" onclick="cancelarEdicaoMovimentacao(' + m.ID + ')">Cancelar</button>' +
-      '</td></tr>'
-    );
-  }
-
-  function iniciarEdicaoMovimentacao(id) {
-    const m = movimentacoesCache.find(x => String(x.ID) === String(id));
-    if (!m) return;
-    document.getElementById('mov-row-' + id).outerHTML = linhaMovimentacaoEdicao(m);
-  }
-
-  function cancelarEdicaoMovimentacao(id) {
-    const m = movimentacoesCache.find(x => String(x.ID) === String(id));
-    if (!m) return;
-    document.getElementById('mov-row-' + id).outerHTML = linhaMovimentacaoView(m);
-  }
-
-  async function salvarEdicaoMovimentacao(id) {
-    const data = document.getElementById('edit-data-' + id).value;
-    const valor = document.getElementById('edit-valor-' + id).value;
-    const pago = document.getElementById('edit-pago-' + id).value === 'true';
-    if (!data || !valor) return toast('Preencha data e valor.');
-
-    try {
-      await chamarAPI('editarMovimentacao', { id, data, valor, pago });
-      toast('Movimentação atualizada!');
-      carregarMovimentacoes();
-      carregarDashboard();
-    } catch (err) {
-      toast(err.message);
-    }
-  }
-
-  async function excluirMovimentacao(id) {
-    if (!confirm('Tem certeza que deseja excluir esta movimentação?')) return;
-    try {
-      await chamarAPI('excluirMovimentacao', { id });
-      toast('Movimentação excluída!');
-      carregarMovimentacoes();
-      carregarDashboard();
-    } catch (err) {
-      toast(err.message);
-    }
   }
 
   function renderDashMovs(movs) {
@@ -718,6 +934,178 @@
   async function alternarPagamento(id, novoPago) {
     try {
       await chamarAPI('atualizarPagamento', { id, pago: novoPago });
+      carregarMovimentacoes();
+      carregarDashboard();
+    } catch (err) {
+      toast(err.message);
+    }
+  }
+
+  /* ---------- EDIÇÃO/EXCLUSÃO DE MOVIMENTAÇÃO (modal) ---------- */
+  function abrirModalMovimentacao(id) {
+    const mov = movimentacoesCache.find(m => Number(m.ID) === Number(id));
+    if (!mov) return toast('Movimentação não encontrada.');
+
+    preencherSelectLancamentos('edit-mov-lancamento', lancamentosCache);
+    document.getElementById('edit-mov-id').value = mov.ID;
+    document.getElementById('edit-mov-lancamento').value = mov.LancamentoID;
+    document.getElementById('edit-mov-data').value = mov.Data;
+    document.getElementById('edit-mov-valor').value = mov.Valor;
+    document.getElementById('edit-mov-pago').value = mov.Pago ? 'true' : 'false';
+    document.getElementById('modal-editar-mov').classList.add('active');
+  }
+
+  function fecharModalMovimentacao() {
+    document.getElementById('modal-editar-mov').classList.remove('active');
+  }
+
+  async function salvarEdicaoMovimentacao() {
+    const id = document.getElementById('edit-mov-id').value;
+    const lancamentoId = document.getElementById('edit-mov-lancamento').value;
+    const data = document.getElementById('edit-mov-data').value;
+    const valor = document.getElementById('edit-mov-valor').value;
+    const pago = document.getElementById('edit-mov-pago').value === 'true';
+
+    if (!lancamentoId) return toast('Selecione um lançamento.');
+    if (!data || !valor) return toast('Preencha data e valor.');
+
+    try {
+      const msg = await chamarAPI('editarMovimentacao', { id, lancamentoId, data, valor, pago });
+      toast(msg);
+      fecharModalMovimentacao();
+      carregarMovimentacoes();
+      carregarDashboard();
+      carregarHistorico();
+    } catch (err) {
+      toast(err.message);
+    }
+  }
+
+  async function excluirMovimentacaoAtual() {
+    const id = document.getElementById('edit-mov-id').value;
+    if (!confirm('Excluir esta movimentação? Isso fica registrado no Histórico de Alterações.')) return;
+
+    try {
+      const msg = await chamarAPI('excluirMovimentacao', { id });
+      toast(msg);
+      fecharModalMovimentacao();
+      carregarMovimentacoes();
+      carregarDashboard();
+      carregarHistorico();
+    } catch (err) {
+      toast(err.message);
+    }
+  }
+
+  /* ---------- CARTÃO DE CRÉDITO ---------- */
+  async function carregarCartoes() {
+    try {
+      const cartoes = await chamarAPI('getCartoes');
+      renderCartoes(cartoes);
+      preencherSelectCartoes(cartoes);
+    } catch (err) {
+      toast(err.message);
+    }
+  }
+
+  function preencherSelectCartoes(cartoes) {
+    const sel = document.getElementById('compra-cartao');
+    if (!cartoes.length) {
+      sel.innerHTML = '<option value="">Cadastre um cartão primeiro</option>';
+      return;
+    }
+    sel.innerHTML = cartoes
+      .map(c => '<option value="' + c.ID + '">' + c.Nome + ' (disponível ' + moeda(c.LimiteDisponivel) + ')</option>')
+      .join('');
+  }
+
+  function renderCartoes(cartoes) {
+    const body = document.getElementById('cartoes-body');
+    if (!cartoes.length) {
+      body.innerHTML = '<tr><td colspan="6" class="empty">Nenhum cartão cadastrado ainda.</td></tr>';
+      return;
+    }
+    body.innerHTML = cartoes
+      .map(
+        c =>
+          '<tr><td>' + c.Nome + '</td><td class="num">' + moeda(c.LimiteTotal) + '</td>' +
+          '<td class="num">' + moeda(c.LimiteUtilizado) + '</td>' +
+          '<td class="num">' + moeda(c.LimiteDisponivel) + '</td>' +
+          '<td>dia ' + c.DiaFechamento + '</td><td>dia ' + c.DiaVencimento + '</td></tr>'
+      )
+      .join('');
+  }
+
+  async function salvarCartao() {
+    const nome = document.getElementById('cartao-nome').value.trim();
+    const limiteTotal = document.getElementById('cartao-limite').value;
+    const diaFechamento = document.getElementById('cartao-fechamento').value;
+    const diaVencimento = document.getElementById('cartao-vencimento').value;
+    if (!nome || !limiteTotal || !diaFechamento || !diaVencimento) {
+      return toast('Preencha todos os campos do cartão.');
+    }
+
+    try {
+      await chamarAPI('addCartao', { nome, limiteTotal, diaFechamento, diaVencimento, ativo: true });
+      toast('Cartão cadastrado!');
+      document.getElementById('cartao-nome').value = '';
+      document.getElementById('cartao-limite').value = '';
+      document.getElementById('cartao-fechamento').value = '';
+      document.getElementById('cartao-vencimento').value = '';
+      carregarCartoes();
+    } catch (err) {
+      toast(err.message);
+    }
+  }
+
+  async function carregarComprasParceladas() {
+    try {
+      const compras = await chamarAPI('getComprasParceladas');
+      renderComprasParceladas(compras);
+    } catch (err) {
+      toast(err.message);
+    }
+  }
+
+  function renderComprasParceladas(compras) {
+    const body = document.getElementById('compras-body');
+    if (!compras.length) {
+      body.innerHTML = '<tr><td colspan="6" class="empty">Nenhuma compra parcelada registrada ainda.</td></tr>';
+      return;
+    }
+    body.innerHTML = compras
+      .map(
+        c =>
+          '<tr><td>' + c.Descricao + '</td><td>' + c.NomeCartao + '</td>' +
+          '<td class="num">' + moeda(c.ValorTotal) + '</td><td>' + c.NumParcelas + 'x</td>' +
+          '<td class="num">' + moeda(c.ValorParcela) + '</td><td>' + dataBR(c.DataCompra) + '</td></tr>'
+      )
+      .join('');
+  }
+
+  async function salvarCompraParcelada() {
+    const cartaoId = document.getElementById('compra-cartao').value;
+    const lancamentoId = document.getElementById('compra-lancamento').value;
+    const descricao = document.getElementById('compra-descricao').value.trim();
+    const valorTotal = document.getElementById('compra-valor').value;
+    const numParcelas = document.getElementById('compra-parcelas').value;
+    const dataCompra = document.getElementById('compra-data').value;
+
+    if (!cartaoId) return toast('Cadastre um cartão primeiro.');
+    if (!lancamentoId) return toast('Cadastre um lançamento primeiro.');
+    if (!descricao) return toast('Descreva a compra.');
+    if (!valorTotal || !numParcelas || !dataCompra) return toast('Preencha valor, parcelas e data da compra.');
+
+    try {
+      const msg = await chamarAPI('addCompraParcelada', {
+        cartaoId, lancamentoId, descricao, valorTotal, numParcelas, dataCompra
+      });
+      toast(msg);
+      document.getElementById('compra-descricao').value = '';
+      document.getElementById('compra-valor').value = '';
+      document.getElementById('compra-parcelas').value = '1';
+      carregarCartoes();
+      carregarComprasParceladas();
       carregarMovimentacoes();
       carregarDashboard();
     } catch (err) {
@@ -808,7 +1196,8 @@
       kpiCard('Saldo previsto', moeda(d.saldoPrevisto), d.saldoPrevisto >= 0) +
       kpiCard('Gasto sugerido / dia', moeda(d.gastoSugerido) + ' <small>(' + d.diasRestantes + ' dias)</small>', d.gastoSugerido >= 0) +
       kpiCard('% da renda gasta no mês', d.percentualRendaGasta.toFixed(1) + '%', d.percentualRendaGasta <= 100) +
-      kpiCard('Gasto permitido até hoje', moeda(d.gastoPermitidoAteHoje), true);
+      kpiCard('Gasto permitido até hoje', moeda(d.gastoPermitidoAteHoje), true) +
+      kpiCard('Parcelas futuras no cartão', moeda(d.parcelasCartaoFuturas), true);
   }
 
   function kpiCard(label, value, positivo) {
