@@ -2,1234 +2,366 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Controle Financeiro</title>
-<link rel="icon" type="image/png" href="data:image/png;base64,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">
-<style>
-  @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=IBM+Plex+Mono:wght@400;600&family=Inter:wght@400;500;600&display=swap');
-
-  :root {
-    --paper: #f7f3ea;
-    --paper-line: #ddd4bf;
-    --ink: #1c2b2d;
-    --ink-soft: #5a6b64;
-    --navy: #1f3b3a;
-    --gold: #b8863b;
-    --red-stamp: #a8362f;
-    --green-stamp: #2f6b4f;
-    --card: #ffffff;
-  }
-
-  * { box-sizing: border-box; }
-
-  body {
-    margin: 0;
-    background: var(--paper);
-    color: var(--ink);
-    font-family: 'Inter', sans-serif;
-    -webkit-font-smoothing: antialiased;
-  }
-
-  h1, h2, h3 { font-family: 'Fraunces', serif; margin: 0; }
-
-  .num { font-family: 'IBM Plex Mono', monospace; font-variant-numeric: tabular-nums; }
-
-  header.topbar {
-    background: var(--navy);
-    color: var(--paper);
-    padding: 18px 24px;
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
-    border-bottom: 3px double var(--gold);
-  }
-  header.topbar h1 { font-size: 22px; letter-spacing: 0.3px; }
-  header.topbar span { color: var(--gold); font-size: 13px; font-family: 'IBM Plex Mono', monospace; }
-
-  #config-warning {
-    background: #fff3cd;
-    color: #7a5b00;
-    padding: 10px 24px;
-    font-size: 13px;
-    display: none;
-    border-bottom: 1px solid #e7d290;
-  }
-
-  nav.tabs {
-    display: flex;
-    gap: 2px;
-    background: var(--navy);
-    padding: 0 24px;
-    overflow-x: auto;
-  }
-  nav.tabs button {
-    background: transparent;
-    border: none;
-    color: #c9d6d1;
-    font-family: 'Inter', sans-serif;
-    font-size: 14px;
-    padding: 12px 16px;
-    cursor: pointer;
-    border-bottom: 3px solid transparent;
-    white-space: nowrap;
-  }
-  nav.tabs button.active {
-    color: #fff;
-    border-bottom-color: var(--gold);
-    font-weight: 600;
-  }
-
-  main { max-width: 1000px; margin: 0 auto; padding: 24px; }
-
-  .view { display: none; }
-  .view.active { display: block; }
-
-  .kpi-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-    gap: 14px;
-    margin-bottom: 28px;
-  }
-
-  .kpi-card {
-    background: var(--card);
-    border: 1px solid var(--paper-line);
-    border-left: 4px solid var(--navy);
-    border-radius: 4px;
-    padding: 16px;
-    position: relative;
-  }
-  .kpi-card .label {
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.6px;
-    color: var(--ink-soft);
-    margin-bottom: 6px;
-  }
-  .kpi-card .value { font-size: 24px; font-weight: 600; }
-  .kpi-card.negative { border-left-color: var(--red-stamp); }
-  .kpi-card.negative .value { color: var(--red-stamp); }
-  .kpi-card.positive .value { color: var(--green-stamp); }
-
-  .card {
-    background: var(--card);
-    border: 1px solid var(--paper-line);
-    border-radius: 4px;
-    padding: 20px;
-    margin-bottom: 20px;
-  }
-  .card h2 { font-size: 18px; margin-bottom: 14px; }
-
-  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
-  .field { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 140px; }
-  .field label { font-size: 12px; color: var(--ink-soft); }
-  .field input, .field select {
-    font-family: 'Inter', sans-serif;
-    padding: 9px 10px;
-    border: 1px solid var(--paper-line);
-    border-radius: 3px;
-    background: #fffdf8;
-    font-size: 14px;
-  }
-
-  button.btn {
-    background: var(--navy);
-    color: #fff;
-    border: none;
-    padding: 10px 18px;
-    border-radius: 3px;
-    font-size: 14px;
-    cursor: pointer;
-    font-family: 'Inter', sans-serif;
-    font-weight: 500;
-  }
-  button.btn:hover { background: #142927; }
-  button.btn.gold { background: var(--gold); }
-  button.btn.ghost { background: transparent; color: var(--navy); border: 1px solid var(--navy); }
-
-  table { width: 100%; border-collapse: collapse; margin-top: 6px; }
-  thead th {
-    text-align: left;
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.4px;
-    color: var(--ink-soft);
-    padding: 8px 6px;
-    border-bottom: 2px solid var(--ink);
-  }
-  tbody td {
-    padding: 10px 6px;
-    border-bottom: 1px solid var(--paper-line);
-    font-size: 14px;
-  }
-  tbody tr:hover { background: #fbf8f0; }
-  tbody tr.linha-clicavel { cursor: pointer; }
-
-  .stamp {
-    display: inline-block;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 1px;
-    padding: 3px 9px;
-    border-radius: 2px;
-    border: 1.5px solid;
-    transform: rotate(-2deg);
-    cursor: pointer;
-  }
-  .stamp.pago { color: var(--green-stamp); border-color: var(--green-stamp); }
-  .stamp.pendente { color: var(--red-stamp); border-color: var(--red-stamp); }
-
-  .badge-tipo {
-    font-size: 11px;
-    padding: 2px 8px;
-    border-radius: 10px;
-    font-weight: 600;
-  }
-  .badge-tipo.Entrada { background: #e4f1ea; color: var(--green-stamp); }
-  .badge-tipo.Saida, .badge-tipo.Saída { background: #f6e6e4; color: var(--red-stamp); }
-
-  .empty { color: var(--ink-soft); font-style: italic; padding: 20px 0; text-align: center; }
-
-  .btn-small {
-    background: transparent;
-    color: var(--navy);
-    border: 1px solid var(--navy);
-    padding: 5px 12px;
-    border-radius: 3px;
-    font-size: 12px;
-    font-family: 'Inter', sans-serif;
-    cursor: pointer;
-  }
-  .btn-small:hover { background: var(--navy); color: #fff; }
-
-  .campo-alterado {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 12px;
-    background: #eef1ea;
-    color: var(--navy);
-    padding: 2px 8px;
-    border-radius: 3px;
-  }
-
-  .modal-overlay {
-    display: none;
-    position: fixed;
-    inset: 0;
-    background: rgba(15, 20, 20, 0.55);
-    align-items: center;
-    justify-content: center;
-    z-index: 100;
-    padding: 16px;
-  }
-  .modal-overlay.active { display: flex; }
-  .modal-box {
-    background: var(--card);
-    border-radius: 6px;
-    padding: 24px;
-    width: 100%;
-    max-width: 420px;
-    border: 1px solid var(--paper-line);
-    box-shadow: 0 10px 30px rgba(0,0,0,0.25);
-  }
-  .modal-box .field { margin-bottom: 4px; }
-
-  .toast {
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
-    background: var(--navy);
-    color: #fff;
-    padding: 12px 18px;
-    border-radius: 4px;
-    font-size: 14px;
-    box-shadow: 0 4px 14px rgba(0,0,0,0.2);
-    display: none;
-    z-index: 50;
-  }
-
-  /* ---------- Responsivo (celular / tela estreita) ---------- */
-  @media (max-width: 640px) {
-    header.topbar {
-      padding: 14px 16px;
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 2px;
-    }
-    header.topbar h1 { font-size: 19px; }
-
-    nav.tabs { padding: 0 8px; }
-    nav.tabs button { padding: 10px 12px; font-size: 13px; }
-
-    main { padding: 14px; }
-
-    .kpi-grid { grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }
-    .kpi-card { padding: 12px; }
-    .kpi-card .label { font-size: 11px; }
-    .kpi-card .value { font-size: 18px; }
-
-    .card { padding: 14px; }
-    .card h2 { font-size: 16px; }
-
-    /* formulários empilham em uma coluna só */
-    .row { flex-direction: column; align-items: stretch; }
-    .field { min-width: 0; width: 100%; }
-    .row button.btn { width: 100%; margin-top: 4px; }
-
-    /* tabelas ganham rolagem horizontal em vez de espremer colunas */
-    .card > table,
-    .card table {
-      display: block;
-      overflow-x: auto;
-      white-space: nowrap;
-      -webkit-overflow-scrolling: touch;
-    }
-    table thead, table tbody { display: table; width: 100%; }
-
-    .toast {
-      left: 14px;
-      right: 14px;
-      bottom: 14px;
-      text-align: center;
-    }
-
-    .modal-box { padding: 18px; }
-    .modal-box .row { flex-direction: row; justify-content: flex-end; }
-    .modal-box .row button.btn { width: auto; }
-  }
-
-  @media (max-width: 380px) {
-    .kpi-grid { grid-template-columns: 1fr; }
-  }
-</style>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Controle Financeiro · Leonardo</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#7C3AED">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Financeiro Leonardo">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-  <header class="topbar">
-    <h1>Livro-Caixa</h1>
-    <span>controle financeiro pessoal</span>
-  </header>
+<div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+<div class="mobile-topbar">
+  <button class="hamburger" id="btn-abrir-menu">☰</button>
+  <div class="mobile-topbar-title">Financeiro Leonardo</div>
+</div>
 
-  <div id="config-warning">
-    ⚠️ Defina a URL do seu App da Web na constante <code>APP_URL</code>, no final deste arquivo HTML, antes de usar.
+<aside class="sidebar" id="sidebar">
+  <div class="brandmark">
+    <div class="co-nome">Financeiro Leonardo</div>
+    <div class="co-sub">controle financeiro pessoal</div>
   </div>
-
-  <nav class="tabs">
-    <button class="tab-btn active" data-view="dashboard">Dashboard</button>
-    <button class="tab-btn" data-view="movimentacoes">Movimentações</button>
-    <button class="tab-btn" data-view="lancamentos">Lançamentos</button>
-    <button class="tab-btn" data-view="cartao">Cartão de Crédito</button>
-    <button class="tab-btn" data-view="recorrentes">Custos Recorrentes</button>
-    <button class="tab-btn" data-view="historico">Histórico de Alterações</button>
-    <button class="tab-btn" data-view="config">Configurações</button>
+  <nav>
+    <a data-view="dashboard" class="active"><span class="ico">📊</span>Dashboard</a>
+    <a data-view="movimentacoes"><span class="ico">💸</span>Movimentações</a>
+    <a data-view="lancamentos"><span class="ico">🏷️</span>Lançamentos</a>
+    <a data-view="cartao"><span class="ico">💳</span>Cartão de Crédito</a>
+    <a data-view="recorrentes"><span class="ico">🔁</span>Custos Recorrentes</a>
+    <a data-view="historico"><span class="ico">🕒</span>Histórico</a>
+    <a data-view="config"><span class="ico">⚙️</span>Configurações</a>
   </nav>
+</aside>
 
-  <main>
+<main class="app">
 
-    <!-- DASHBOARD -->
-    <section id="view-dashboard" class="view active">
-      <div class="kpi-grid" id="kpi-grid">
-        <div class="empty">Carregando indicadores…</div>
-      </div>
-      <div class="card">
-        <h2>Últimas movimentações</h2>
-        <table>
-          <thead><tr><th>Data</th><th>Lançamento</th><th>Tipo</th><th>Valor</th><th>Situação</th></tr></thead>
-          <tbody id="dash-movs-body"><tr><td colspan="5" class="empty">Carregando…</td></tr></tbody>
-        </table>
-      </div>
-    </section>
+  <!-- DASHBOARD -->
+  <section id="view-dashboard" class="view active">
+    <header class="top"><div><h1>Dashboard</h1></div></header>
+    <div class="kpi-grid" id="kpi-grid">
+      <div class="empty">Carregando indicadores…</div>
+    </div>
+    <div class="card">
+      <h2>Últimas movimentações</h2>
+      <table>
+        <thead><tr><th>Data</th><th>Lançamento</th><th>Tipo</th><th>Valor</th><th>Situação</th></tr></thead>
+        <tbody id="dash-movs-body"><tr><td colspan="5" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
 
-    <!-- MOVIMENTAÇÕES -->
-    <section id="view-movimentacoes" class="view">
-      <div class="card">
-        <h2>Nova movimentação</h2>
-        <div class="row">
-          <div class="field">
-            <label>Lançamento</label>
-            <select id="mov-lancamento"></select>
-          </div>
-          <div class="field">
-            <label>Data</label>
-            <input type="date" id="mov-data">
-          </div>
-          <div class="field">
-            <label>Valor (R$)</label>
-            <input type="number" step="0.01" id="mov-valor" placeholder="0,00">
-          </div>
-          <div class="field">
-            <label>Situação</label>
-            <select id="mov-pago">
-              <option value="false">Não pago</option>
-              <option value="true">Pago</option>
-            </select>
-          </div>
-          <button class="btn" onclick="salvarMovimentacao()">Adicionar</button>
+  <!-- MOVIMENTAÇÕES -->
+  <section id="view-movimentacoes" class="view">
+    <header class="top"><div><h1>Movimentações</h1></div></header>
+    <div class="card">
+      <h2>Nova movimentação</h2>
+      <div class="row">
+        <div class="field">
+          <label>Lançamento</label>
+          <select id="mov-lancamento"></select>
         </div>
-        <p style="margin-top:10px; font-size:13px; color:var(--ink-soft)">
-          Não achou o lançamento? <a href="#" onclick="irParaLancamentos(event)">Cadastre um novo tipo de lançamento</a> primeiro.
-        </p>
-      </div>
-
-      <div class="card">
-        <h2>Movimentações cadastradas</h2>
-        <table>
-          <thead><tr><th>Data</th><th>Lançamento</th><th>Tipo</th><th>Categoria</th><th>Valor</th><th>Situação</th></tr></thead>
-          <tbody id="movs-body"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
-        </table>
-      </div>
-    </section>
-
-    <!-- LANÇAMENTOS -->
-    <section id="view-lancamentos" class="view">
-      <div class="card">
-        <h2>Novo lançamento</h2>
-        <div class="row">
-          <div class="field">
-            <label>Nome</label>
-            <input type="text" id="lanc-nome" placeholder="Ex: Salário, Aluguel, Mercado...">
-          </div>
-          <div class="field">
-            <label>Tipo</label>
-            <select id="lanc-tipo">
-              <option value="Entrada">Entrada</option>
-              <option value="Saida">Saída</option>
-            </select>
-          </div>
-          <div class="field">
-            <label>Categoria</label>
-            <input type="text" id="lanc-categoria" list="lista-categorias" placeholder="Ex: Moradia, Lazer, Renda..." autocomplete="off">
-            <datalist id="lista-categorias"></datalist>
-          </div>
-          <button class="btn" onclick="salvarLancamento()">Cadastrar</button>
+        <div class="field">
+          <label>Data</label>
+          <input type="date" id="mov-data">
         </div>
-      </div>
-
-      <div class="card">
-        <h2>Lançamentos cadastrados</h2>
-        <p style="font-size:13px; color:var(--ink-soft); margin-bottom:10px;">
-          Clique em <strong>Editar</strong> para alterar nome, tipo ou categoria. Movimentações e
-          custos recorrentes que usam esse lançamento passam a exibir os novos dados
-          automaticamente, e cada alteração fica registrada no Histórico de Alterações.
-        </p>
-        <table>
-          <thead><tr><th>Nome</th><th>Tipo</th><th>Categoria</th><th>Ação</th></tr></thead>
-          <tbody id="lancs-body"><tr><td colspan="4" class="empty">Carregando…</td></tr></tbody>
-        </table>
-      </div>
-    </section>
-
-    <!-- CARTÃO DE CRÉDITO -->
-    <section id="view-cartao" class="view">
-      <div class="card">
-        <h2>Novo cartão</h2>
-        <div class="row">
-          <div class="field">
-            <label>Nome do cartão</label>
-            <input type="text" id="cartao-nome" placeholder="Ex: Nubank, Inter...">
-          </div>
-          <div class="field">
-            <label>Limite total (R$)</label>
-            <input type="number" step="0.01" id="cartao-limite">
-          </div>
-          <div class="field">
-            <label>Dia de fechamento</label>
-            <input type="number" min="1" max="31" id="cartao-fechamento" placeholder="Ex: 20">
-          </div>
-          <div class="field">
-            <label>Dia de vencimento</label>
-            <input type="number" min="1" max="31" id="cartao-vencimento" placeholder="Ex: 28">
-          </div>
-          <button class="btn" onclick="salvarCartao()">Cadastrar</button>
+        <div class="field">
+          <label>Valor (R$)</label>
+          <input type="number" step="0.01" id="mov-valor" placeholder="0,00">
         </div>
-      </div>
-
-      <div class="card">
-        <h2>Cartões cadastrados</h2>
-        <table>
-          <thead><tr><th>Cartão</th><th>Limite total</th><th>Utilizado</th><th>Disponível</th><th>Fecha</th><th>Vence</th></tr></thead>
-          <tbody id="cartoes-body"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
-        </table>
-      </div>
-
-      <div class="card">
-        <h2>Nova compra parcelada</h2>
-        <div class="row">
-          <div class="field">
-            <label>Cartão</label>
-            <select id="compra-cartao"></select>
-          </div>
-          <div class="field">
-            <label>Lançamento</label>
-            <select id="compra-lancamento"></select>
-          </div>
-          <div class="field">
-            <label>Descrição</label>
-            <input type="text" id="compra-descricao" placeholder="Ex: Notebook, Geladeira...">
-          </div>
+        <div class="field">
+          <label>Situação</label>
+          <select id="mov-pago">
+            <option value="false">Não pago</option>
+            <option value="true">Pago</option>
+          </select>
         </div>
-        <div class="row" style="margin-top:10px;">
-          <div class="field">
-            <label>Valor total (R$)</label>
-            <input type="number" step="0.01" id="compra-valor">
-          </div>
-          <div class="field">
-            <label>Nº de parcelas</label>
-            <input type="number" min="1" max="60" id="compra-parcelas" value="1">
-          </div>
-          <div class="field">
-            <label>Data da compra</label>
-            <input type="date" id="compra-data">
-          </div>
-          <button class="btn" onclick="salvarCompraParcelada()">Lançar compra</button>
+        <button class="btn btn-primary" id="btn-add-movimentacao">Adicionar</button>
+      </div>
+      <p class="hint">Não achou o lançamento? <a href="#" id="link-ir-lancamentos">Cadastre um novo tipo de lançamento</a> primeiro.</p>
+    </div>
+
+    <div class="card">
+      <h2>Movimentações cadastradas</h2>
+      <table>
+        <thead><tr><th>Data</th><th>Lançamento</th><th>Tipo</th><th>Categoria</th><th>Valor</th><th>Situação</th></tr></thead>
+        <tbody id="movs-body"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- LANÇAMENTOS -->
+  <section id="view-lancamentos" class="view">
+    <header class="top"><div><h1>Lançamentos</h1></div></header>
+    <div class="card">
+      <h2>Novo lançamento</h2>
+      <div class="row">
+        <div class="field">
+          <label>Nome</label>
+          <input type="text" id="lanc-nome" placeholder="Ex: Salário, Aluguel, Mercado...">
         </div>
-        <p style="margin-top:10px; font-size:13px; color:var(--ink-soft)">
-          Ao lançar, todas as parcelas já são criadas em Movimentações, com vencimento calculado
-          a partir do fechamento/vencimento do cartão escolhido.
-        </p>
+        <div class="field">
+          <label>Tipo</label>
+          <select id="lanc-tipo">
+            <option value="Entrada">Entrada</option>
+            <option value="Saida">Saída</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Categoria</label>
+          <input type="text" id="lanc-categoria" list="lista-categorias" placeholder="Ex: Moradia, Lazer, Renda..." autocomplete="off">
+          <datalist id="lista-categorias"></datalist>
+        </div>
+        <button class="btn btn-primary" id="btn-add-lancamento">Cadastrar</button>
       </div>
+    </div>
 
-      <div class="card">
-        <h2>Compras parceladas</h2>
-        <table>
-          <thead><tr><th>Descrição</th><th>Cartão</th><th>Valor total</th><th>Parcelas</th><th>Valor/parcela</th><th>Data da compra</th></tr></thead>
-          <tbody id="compras-body"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
-        </table>
+    <div class="card">
+      <h2>Lançamentos cadastrados</h2>
+      <p class="hint">Clique em <strong>Editar</strong> para alterar nome, tipo ou categoria. Movimentações e custos recorrentes que usam esse lançamento passam a exibir os novos dados automaticamente, e cada alteração fica registrada no Histórico.</p>
+      <table>
+        <thead><tr><th>Nome</th><th>Tipo</th><th>Categoria</th><th>Ação</th></tr></thead>
+        <tbody id="lancs-body"><tr><td colspan="4" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- CARTÃO DE CRÉDITO -->
+  <section id="view-cartao" class="view">
+    <header class="top"><div><h1>Cartão de Crédito</h1></div></header>
+    <div class="card">
+      <h2>Novo cartão</h2>
+      <div class="row">
+        <div class="field">
+          <label>Nome do cartão</label>
+          <input type="text" id="cartao-nome" placeholder="Ex: Nubank, Inter...">
+        </div>
+        <div class="field">
+          <label>Limite total (R$)</label>
+          <input type="number" step="0.01" id="cartao-limite">
+        </div>
+        <div class="field">
+          <label>Dia de fechamento</label>
+          <input type="number" min="1" max="31" id="cartao-fechamento" placeholder="Ex: 20">
+        </div>
+        <div class="field">
+          <label>Dia de vencimento</label>
+          <input type="number" min="1" max="31" id="cartao-vencimento" placeholder="Ex: 28">
+        </div>
+        <button class="btn btn-primary" id="btn-add-cartao">Cadastrar</button>
       </div>
-    </section>
+    </div>
 
-    <!-- HISTÓRICO DE ALTERAÇÕES -->
-    <section id="view-historico" class="view">
-      <div class="card">
-        <h2>Histórico de alterações</h2>
-        <p style="font-size:13px; color:var(--ink-soft); margin-bottom:10px;">
-          Log permanente de todas as edições feitas em lançamentos — nada aqui é apagado ou sobrescrito.
-        </p>
-        <table>
-          <thead><tr><th>Data e hora</th><th>Lançamento</th><th>Campo</th><th>Valor anterior</th><th>Novo valor</th><th>Tipo</th></tr></thead>
-          <tbody id="historico-body"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
-        </table>
-      </div>
-    </section>
+    <div class="card">
+      <h2>Cartões cadastrados</h2>
+      <table>
+        <thead><tr><th>Cartão</th><th>Limite total</th><th>Utilizado</th><th>Disponível</th><th>Fecha</th><th>Vence</th></tr></thead>
+        <tbody id="cartoes-body"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
 
-    <!-- CUSTOS RECORRENTES -->
-    <section id="view-recorrentes" class="view">
-      <div class="card">
-        <h2>Novo custo recorrente</h2>
-        <div class="row">
-          <div class="field">
-            <label>Lançamento</label>
-            <select id="rec-lancamento"></select>
-          </div>
-          <div class="field">
-            <label>Valor (R$)</label>
-            <input type="number" step="0.01" id="rec-valor">
-          </div>
-          <div class="field">
-            <label>Data início</label>
-            <input type="date" id="rec-inicio">
-          </div>
-          <div class="field">
-            <label>Dia vencimento</label>
-            <input type="number" min="1" max="31" id="rec-dia">
-          </div>
-          <div class="field">
-            <label>Ativo</label>
-            <select id="rec-ativo">
-              <option value="true">Sim</option>
-              <option value="false">Não</option>
-            </select>
-          </div>
-          <button class="btn" onclick="salvarRecorrente()">Adicionar</button>
+    <div class="card">
+      <h2>Nova compra parcelada</h2>
+      <div class="row">
+        <div class="field">
+          <label>Cartão</label>
+          <select id="compra-cartao"></select>
+        </div>
+        <div class="field">
+          <label>Lançamento</label>
+          <select id="compra-lancamento"></select>
+        </div>
+        <div class="field">
+          <label>Descrição</label>
+          <input type="text" id="compra-descricao" placeholder="Ex: Notebook, Geladeira...">
         </div>
       </div>
-
-      <div class="card">
-        <h2>Custos recorrentes</h2>
-        <button class="btn gold" onclick="lancarPendentes()">Lançar recorrentes pendentes deste mês</button>
-        <table>
-          <thead><tr><th>Lançamento</th><th>Valor</th><th>Dia venc.</th><th>Próx. vencimento</th><th>Ativo</th></tr></thead>
-          <tbody id="recs-body"><tr><td colspan="5" class="empty">Carregando…</td></tr></tbody>
-        </table>
-      </div>
-    </section>
-
-    <!-- CONFIG -->
-    <section id="view-config" class="view">
-      <div class="card">
-        <h2>Configurações</h2>
-        <div class="row">
-          <div class="field">
-            <label>Renda mensal (R$)</label>
-            <input type="number" step="0.01" id="cfg-renda">
-          </div>
-          <div class="field">
-            <label>Saldo inicial (R$)</label>
-            <input type="number" step="0.01" id="cfg-saldo">
-          </div>
-          <button class="btn" onclick="salvarConfiguracao()">Salvar</button>
+      <div class="row" style="margin-top:10px;">
+        <div class="field">
+          <label>Valor total (R$)</label>
+          <input type="number" step="0.01" id="compra-valor">
         </div>
-        <p style="margin-top:14px; font-size:13px; color:var(--ink-soft)">
-          O saldo inicial é o valor que você tem em caixa/conta hoje, antes das movimentações já pagas registradas no sistema.
-          A renda mensal é usada para calcular o percentual de renda gasta e o gasto permitido até hoje.
-        </p>
+        <div class="field">
+          <label>Nº de parcelas</label>
+          <input type="number" min="1" max="60" id="compra-parcelas" value="1">
+        </div>
+        <div class="field">
+          <label>Data da compra</label>
+          <input type="date" id="compra-data">
+        </div>
+        <button class="btn btn-primary" id="btn-add-compra">Lançar compra</button>
       </div>
-    </section>
+      <p class="hint">Ao lançar, todas as parcelas já são criadas em Movimentações, com vencimento calculado a partir do fechamento/vencimento do cartão escolhido.</p>
+    </div>
 
-  </main>
+    <div class="card">
+      <h2>Compras parceladas</h2>
+      <table>
+        <thead><tr><th>Descrição</th><th>Cartão</th><th>Valor total</th><th>Parcelas</th><th>Valor/parcela</th><th>Data da compra</th></tr></thead>
+        <tbody id="compras-body"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
 
-  <!-- MODAL: editar lançamento -->
-  <div class="modal-overlay" id="modal-editar" onclick="if(event.target===this) fecharModalEdicao()">
-    <div class="modal-box">
-      <h2>Editar lançamento</h2>
-      <input type="hidden" id="edit-lanc-id">
-      <div class="field" style="margin-top:14px;">
-        <label>Nome</label>
-        <input type="text" id="edit-lanc-nome">
+  <!-- CUSTOS RECORRENTES -->
+  <section id="view-recorrentes" class="view">
+    <header class="top"><div><h1>Custos Recorrentes</h1></div></header>
+    <div class="card">
+      <h2>Novo custo recorrente</h2>
+      <div class="row">
+        <div class="field">
+          <label>Lançamento</label>
+          <select id="rec-lancamento"></select>
+        </div>
+        <div class="field">
+          <label>Valor (R$)</label>
+          <input type="number" step="0.01" id="rec-valor">
+        </div>
+        <div class="field">
+          <label>Data início</label>
+          <input type="date" id="rec-inicio">
+        </div>
+        <div class="field">
+          <label>Dia vencimento</label>
+          <input type="number" min="1" max="31" id="rec-dia">
+        </div>
+        <div class="field">
+          <label>Ativo</label>
+          <select id="rec-ativo">
+            <option value="true">Sim</option>
+            <option value="false">Não</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" id="btn-add-recorrente">Adicionar</button>
       </div>
-      <div class="field" style="margin-top:10px;">
-        <label>Tipo</label>
-        <select id="edit-lanc-tipo">
-          <option value="Entrada">Entrada</option>
-          <option value="Saida">Saída</option>
-        </select>
+    </div>
+
+    <div class="card">
+      <h2>Custos recorrentes</h2>
+      <p class="hint">O sistema já tenta lançar os recorrentes pendentes do mês automaticamente ao abrir esta página — o botão abaixo é só pra forçar a checagem na hora.</p>
+      <button class="btn btn-primary" id="btn-lancar-pendentes" style="margin-bottom:14px;">Lançar recorrentes pendentes deste mês</button>
+      <table>
+        <thead><tr><th>Lançamento</th><th>Valor</th><th>Dia venc.</th><th>Próx. vencimento</th><th>Ativo</th></tr></thead>
+        <tbody id="recs-body"><tr><td colspan="5" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- HISTÓRICO -->
+  <section id="view-historico" class="view">
+    <header class="top"><div><h1>Histórico de Alterações</h1></div></header>
+    <div class="card">
+      <p class="hint" style="margin-top:0;">Log permanente de todas as edições e exclusões — nada aqui é apagado ou sobrescrito.</p>
+      <table>
+        <thead><tr><th>Data e hora</th><th>Lançamento</th><th>Campo</th><th>Valor anterior</th><th>Novo valor</th><th>Tipo</th></tr></thead>
+        <tbody id="historico-body"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- CONFIG -->
+  <section id="view-config" class="view">
+    <header class="top"><div><h1>Configurações</h1></div></header>
+    <div class="card">
+      <h2>Configurações gerais</h2>
+      <div class="row">
+        <div class="field">
+          <label>Renda mensal (R$)</label>
+          <input type="number" step="0.01" id="cfg-renda">
+        </div>
+        <div class="field">
+          <label>Saldo inicial (R$)</label>
+          <input type="number" step="0.01" id="cfg-saldo">
+        </div>
+        <button class="btn btn-primary" id="btn-salvar-config">Salvar</button>
       </div>
-      <div class="field" style="margin-top:10px;">
-        <label>Categoria</label>
-        <input type="text" id="edit-lanc-categoria" list="lista-categorias" autocomplete="off">
-      </div>
-      <div class="row" style="justify-content:flex-end; margin-top:18px;">
-        <button class="btn ghost" onclick="fecharModalEdicao()">Cancelar</button>
-        <button class="btn" onclick="salvarEdicaoLancamento()">Salvar alterações</button>
+      <p class="hint">O saldo inicial é o valor que você tem em caixa/conta hoje, antes das movimentações já pagas registradas no sistema. A renda mensal é usada para calcular o percentual de renda gasta e o gasto permitido até hoje.</p>
+    </div>
+  </section>
+
+</main>
+
+<!-- MODAL: editar lançamento -->
+<div class="modal-overlay" id="modal-editar">
+  <div class="modal-box">
+    <h2>Editar lançamento</h2>
+    <input type="hidden" id="edit-lanc-id">
+    <div class="field" style="margin-top:14px;">
+      <label>Nome</label>
+      <input type="text" id="edit-lanc-nome">
+    </div>
+    <div class="field" style="margin-top:10px;">
+      <label>Tipo</label>
+      <select id="edit-lanc-tipo">
+        <option value="Entrada">Entrada</option>
+        <option value="Saida">Saída</option>
+      </select>
+    </div>
+    <div class="field" style="margin-top:10px;">
+      <label>Categoria</label>
+      <input type="text" id="edit-lanc-categoria" list="lista-categorias" autocomplete="off">
+    </div>
+    <div class="row" style="justify-content:flex-end; margin-top:18px;">
+      <button class="btn" id="btn-cancelar-edicao-lanc">Cancelar</button>
+      <button class="btn btn-primary" id="btn-salvar-edicao-lanc">Salvar alterações</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: editar/excluir movimentação -->
+<div class="modal-overlay" id="modal-editar-mov">
+  <div class="modal-box">
+    <h2>Editar movimentação</h2>
+    <input type="hidden" id="edit-mov-id">
+    <div class="field" style="margin-top:14px;">
+      <label>Lançamento</label>
+      <select id="edit-mov-lancamento"></select>
+    </div>
+    <div class="field" style="margin-top:10px;">
+      <label>Data</label>
+      <input type="date" id="edit-mov-data">
+    </div>
+    <div class="field" style="margin-top:10px;">
+      <label>Valor (R$)</label>
+      <input type="number" step="0.01" id="edit-mov-valor">
+    </div>
+    <div class="field" style="margin-top:10px;">
+      <label>Situação</label>
+      <select id="edit-mov-pago">
+        <option value="false">Não pago</option>
+        <option value="true">Pago</option>
+      </select>
+    </div>
+    <div class="row" style="justify-content:space-between; margin-top:18px;">
+      <button class="btn btn-danger" id="btn-excluir-mov">Excluir</button>
+      <div class="row" style="width:auto;">
+        <button class="btn" id="btn-cancelar-edicao-mov">Cancelar</button>
+        <button class="btn btn-primary" id="btn-salvar-edicao-mov">Salvar alterações</button>
       </div>
     </div>
   </div>
-
-  <!-- MODAL: editar/excluir movimentação -->
-  <div class="modal-overlay" id="modal-editar-mov" onclick="if(event.target===this) fecharModalMovimentacao()">
-    <div class="modal-box">
-      <h2>Editar movimentação</h2>
-      <input type="hidden" id="edit-mov-id">
-      <div class="field" style="margin-top:14px;">
-        <label>Lançamento</label>
-        <select id="edit-mov-lancamento"></select>
-      </div>
-      <div class="field" style="margin-top:10px;">
-        <label>Data</label>
-        <input type="date" id="edit-mov-data">
-      </div>
-      <div class="field" style="margin-top:10px;">
-        <label>Valor (R$)</label>
-        <input type="number" step="0.01" id="edit-mov-valor">
-      </div>
-      <div class="field" style="margin-top:10px;">
-        <label>Situação</label>
-        <select id="edit-mov-pago">
-          <option value="false">Não pago</option>
-          <option value="true">Pago</option>
-        </select>
-      </div>
-      <div class="row" style="justify-content:space-between; margin-top:18px;">
-        <button class="btn ghost" style="border-color:var(--red-stamp); color:var(--red-stamp);" onclick="excluirMovimentacaoAtual()">Excluir</button>
-        <div class="row" style="width:auto;">
-          <button class="btn ghost" onclick="fecharModalMovimentacao()">Cancelar</button>
-          <button class="btn" onclick="salvarEdicaoMovimentacao()">Salvar alterações</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="toast" id="toast"></div>
-
-<script>
-  /* ============================================================
-   * COLE AQUI a URL do seu App da Web do Apps Script (termina em /exec)
-   * Extensões → Apps Script → Implantar → Gerenciar implantações → copiar URL
-   * ============================================================ */
-  const APP_URL = 'https://script.google.com/macros/s/AKfycby8IVLxMCQwfjkjcwksrDNd6qUysIqKm_np3_KcxFmXuq6LvvXYCG6n72X8kZZnqTbl/exec';
-
-  if (APP_URL.indexOf('COLE_AQUI') === 0) {
-    document.getElementById('config-warning').style.display = 'block';
-  }
-
-  /* ---------- cliente JSONP (evita bloqueio de CORS) ---------- */
-  let jsonpContador = 0;
-  function chamarAPI(action, params) {
-    return new Promise((resolve, reject) => {
-      const nomeCallback = 'cb_' + (jsonpContador++) + '_' + Date.now();
-      const url = new URL(APP_URL);
-      url.searchParams.set('action', action);
-      Object.keys(params || {}).forEach(k => url.searchParams.set(k, params[k]));
-      url.searchParams.set('callback', nomeCallback);
-
-      const script = document.createElement('script');
-      window[nomeCallback] = function (resposta) {
-        delete window[nomeCallback];
-        script.remove();
-        if (resposta.ok) resolve(resposta.dados);
-        else reject(new Error(resposta.erro));
-      };
-      script.onerror = () => {
-        delete window[nomeCallback];
-        script.remove();
-        reject(new Error('Não foi possível conectar à API. Confira a URL em APP_URL.'));
-      };
-      script.src = url.toString();
-      document.body.appendChild(script);
-    });
-  }
-
-  let lancamentosCache = [];
-
-  document.querySelectorAll('.tab-btn').forEach(btn => {
-    btn.addEventListener('click', () => trocarView(btn.dataset.view));
-  });
-
-  function trocarView(nome) {
-    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    document.getElementById('view-' + nome).classList.add('active');
-    document.querySelector('.tab-btn[data-view="' + nome + '"]').classList.add('active');
-  }
-
-  function irParaLancamentos(e) {
-    e.preventDefault();
-    trocarView('lancamentos');
-  }
-
-  function toast(msg) {
-    const t = document.getElementById('toast');
-    t.textContent = msg;
-    t.style.display = 'block';
-    setTimeout(() => (t.style.display = 'none'), 3000);
-  }
-
-  function moeda(v) {
-    return (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-  }
-
-  function dataBR(iso) {
-    const [a, m, d] = iso.split('-');
-    return d + '/' + m + '/' + a;
-  }
-
-  /* ---------- carga inicial ---------- */
-  window.addEventListener('DOMContentLoaded', () => {
-    document.getElementById('mov-data').valueAsDate = new Date();
-    document.getElementById('rec-inicio').valueAsDate = new Date();
-    document.getElementById('compra-data').valueAsDate = new Date();
-    carregarLancamentos();
-    carregarMovimentacoes();
-    carregarRecorrentes();
-    carregarDashboard();
-    carregarConfig();
-    carregarHistorico();
-    carregarCartoes();
-    carregarComprasParceladas();
-  });
-
-  /* ---------- LANÇAMENTOS ---------- */
-  async function carregarLancamentos() {
-    try {
-      const lancs = await chamarAPI('getLancamentos');
-      lancamentosCache = lancs;
-      renderLancamentos(lancs);
-      preencherSelectLancamentos('mov-lancamento', lancs);
-      preencherSelectLancamentos('rec-lancamento', lancs);
-      preencherSelectLancamentos('compra-lancamento', lancs);
-      preencherCategorias(lancs);
-    } catch (err) {
-      toast(err.message);
-    }
-  }
-
-  function preencherCategorias(lancs) {
-    const categorias = [...new Set(lancs.map(l => l.Categoria).filter(Boolean))].sort();
-    document.getElementById('lista-categorias').innerHTML = categorias
-      .map(c => '<option value="' + c + '"></option>')
-      .join('');
-  }
-
-  function preencherSelectLancamentos(idSelect, lancs) {
-    const sel = document.getElementById(idSelect);
-    sel.innerHTML = lancs
-      .map(l => '<option value="' + l.ID + '">' + l.Nome + ' (' + l.Tipo + ' — ' + l.Categoria + ')</option>')
-      .join('');
-  }
-
-  function renderLancamentos(lancs) {
-    const body = document.getElementById('lancs-body');
-    if (!lancs.length) {
-      body.innerHTML = '<tr><td colspan="4" class="empty">Nenhum lançamento cadastrado ainda.</td></tr>';
-      return;
-    }
-    body.innerHTML = lancs
-      .map(
-        l =>
-          '<tr><td>' + l.Nome + '</td><td><span class="badge-tipo ' + l.Tipo + '">' + l.Tipo + '</span></td>' +
-          '<td>' + l.Categoria + '</td><td><button class="btn-small" onclick="abrirModalEdicao(' + l.ID + ')">Editar</button></td></tr>'
-      )
-      .join('');
-  }
-
-  async function salvarLancamento() {
-    const nome = document.getElementById('lanc-nome').value.trim();
-    const tipo = document.getElementById('lanc-tipo').value;
-    const categoria = document.getElementById('lanc-categoria').value.trim();
-    if (!nome || !categoria) return toast('Preencha nome e categoria.');
-
-    try {
-      await chamarAPI('addLancamento', { nome, tipo, categoria });
-      toast('Lançamento cadastrado!');
-      document.getElementById('lanc-nome').value = '';
-      document.getElementById('lanc-categoria').value = '';
-      carregarLancamentos();
-    } catch (err) {
-      toast(err.message);
-    }
-  }
-
-  /* ---------- EDIÇÃO DE LANÇAMENTO (modal) ---------- */
-
-  function abrirModalEdicao(id) {
-    const lanc = lancamentosCache.find(l => Number(l.ID) === Number(id));
-    if (!lanc) return toast('Lançamento não encontrado.');
-    document.getElementById('edit-lanc-id').value = lanc.ID;
-    document.getElementById('edit-lanc-nome').value = lanc.Nome;
-    document.getElementById('edit-lanc-tipo').value = lanc.Tipo;
-    document.getElementById('edit-lanc-categoria').value = lanc.Categoria;
-    document.getElementById('modal-editar').classList.add('active');
-  }
-
-  function fecharModalEdicao() {
-    document.getElementById('modal-editar').classList.remove('active');
-  }
-
-  async function salvarEdicaoLancamento() {
-    const id = document.getElementById('edit-lanc-id').value;
-    const nome = document.getElementById('edit-lanc-nome').value.trim();
-    const tipo = document.getElementById('edit-lanc-tipo').value;
-    const categoria = document.getElementById('edit-lanc-categoria').value.trim();
-
-    if (!nome) return toast('O nome não pode ficar em branco.');
-    if (!categoria) return toast('A categoria não pode ficar em branco.');
-    if (tipo !== 'Entrada' && tipo !== 'Saida') return toast('Tipo inválido.');
-
-    try {
-      const msg = await chamarAPI('editarLancamento', { id, nome, tipo, categoria });
-      toast(msg);
-      fecharModalEdicao();
-      // atualiza tudo que exibe nome/tipo/categoria do lançamento
-      carregarLancamentos();
-      carregarMovimentacoes();
-      carregarRecorrentes();
-      carregarDashboard();
-      carregarHistorico();
-    } catch (err) {
-      toast(err.message);
-    }
-  }
-
-  /* ---------- HISTÓRICO DE ALTERAÇÕES ---------- */
-  async function carregarHistorico() {
-    try {
-      const historico = await chamarAPI('getHistorico');
-      renderHistorico(historico);
-    } catch (err) {
-      toast(err.message);
-    }
-  }
-
-  function renderHistorico(historico) {
-    const body = document.getElementById('historico-body');
-    if (!historico.length) {
-      body.innerHTML = '<tr><td colspan="6" class="empty">Nenhuma alteração registrada ainda.</td></tr>';
-      return;
-    }
-    body.innerHTML = historico
-      .map(
-        h =>
-          '<tr><td>' + dataHoraBR(h.DataHora) + '</td><td>' + h.NomeLancamento + '</td>' +
-          '<td><span class="campo-alterado">' + h.Campo + '</span></td>' +
-          '<td>' + h.ValorAnterior + '</td><td>' + h.ValorNovo + '</td><td>' + h.TipoAlteracao + '</td></tr>'
-      )
-      .join('');
-  }
-
-  function dataHoraBR(dataHoraISO) {
-    // formato recebido: yyyy-MM-dd HH:mm:ss
-    const [dataParte, horaParte] = dataHoraISO.split(' ');
-    return dataBR(dataParte) + ' às ' + (horaParte ? horaParte.slice(0, 5) : '');
-  }
-
-  /* ---------- MOVIMENTAÇÕES ---------- */
-  let movimentacoesCache = [];
-
-  async function carregarMovimentacoes() {
-    try {
-      const movs = await chamarAPI('getMovimentacoes');
-      movimentacoesCache = movs;
-      renderMovimentacoes(movs);
-    } catch (err) {
-      toast(err.message);
-    }
-  }
-
-  function renderMovimentacoes(movs) {
-    const body = document.getElementById('movs-body');
-    if (!movs.length) {
-      body.innerHTML = '<tr><td colspan="6" class="empty">Nenhuma movimentação registrada ainda.</td></tr>';
-    } else {
-      body.innerHTML = movs
-        .map(
-          m =>
-            '<tr class="linha-clicavel" onclick="abrirModalMovimentacao(' + m.ID + ')">' +
-            '<td>' + dataBR(m.Data) + '</td><td>' + m.NomeLancamento + '</td>' +
-            '<td><span class="badge-tipo ' + m.Tipo + '">' + m.Tipo + '</span></td>' +
-            '<td>' + m.Categoria + '</td><td class="num">' + moeda(m.Valor) + '</td>' +
-            '<td><span class="stamp ' + (m.Pago ? 'pago' : 'pendente') + '" onclick="event.stopPropagation(); alternarPagamento(' + m.ID + ',' + (!m.Pago) + ')">' +
-            (m.Pago ? 'PAGO' : 'PENDENTE') + '</span></td></tr>'
-        )
-        .join('');
-    }
-    renderDashMovs(movs.slice(0, 8));
-  }
-
-  function renderDashMovs(movs) {
-    const body = document.getElementById('dash-movs-body');
-    if (!movs.length) {
-      body.innerHTML = '<tr><td colspan="5" class="empty">Nenhuma movimentação registrada ainda.</td></tr>';
-      return;
-    }
-    body.innerHTML = movs
-      .map(
-        m =>
-          '<tr><td>' + dataBR(m.Data) + '</td><td>' + m.NomeLancamento + '</td>' +
-          '<td><span class="badge-tipo ' + m.Tipo + '">' + m.Tipo + '</span></td>' +
-          '<td class="num">' + moeda(m.Valor) + '</td>' +
-          '<td><span class="stamp ' + (m.Pago ? 'pago' : 'pendente') + '">' + (m.Pago ? 'PAGO' : 'PENDENTE') + '</span></td></tr>'
-      )
-      .join('');
-  }
-
-  async function salvarMovimentacao() {
-    const lancamentoId = document.getElementById('mov-lancamento').value;
-    const data = document.getElementById('mov-data').value;
-    const valor = document.getElementById('mov-valor').value;
-    const pago = document.getElementById('mov-pago').value === 'true';
-    if (!lancamentoId) return toast('Cadastre um lançamento primeiro.');
-    if (!data || !valor) return toast('Preencha data e valor.');
-
-    try {
-      await chamarAPI('addMovimentacao', { lancamentoId, data, valor, pago, origem: 'Manual' });
-      toast('Movimentação adicionada!');
-      document.getElementById('mov-valor').value = '';
-      carregarMovimentacoes();
-      carregarDashboard();
-    } catch (err) {
-      toast(err.message);
-    }
-  }
-
-  async function alternarPagamento(id, novoPago) {
-    try {
-      await chamarAPI('atualizarPagamento', { id, pago: novoPago });
-      carregarMovimentacoes();
-      carregarDashboard();
-    } catch (err) {
-      toast(err.message);
-    }
-  }
-
-  /* ---------- EDIÇÃO/EXCLUSÃO DE MOVIMENTAÇÃO (modal) ---------- */
-  function abrirModalMovimentacao(id) {
-    const mov = movimentacoesCache.find(m => Number(m.ID) === Number(id));
-    if (!mov) return toast('Movimentação não encontrada.');
-
-    preencherSelectLancamentos('edit-mov-lancamento', lancamentosCache);
-    document.getElementById('edit-mov-id').value = mov.ID;
-    document.getElementById('edit-mov-lancamento').value = mov.LancamentoID;
-    document.getElementById('edit-mov-data').value = mov.Data;
-    document.getElementById('edit-mov-valor').value = mov.Valor;
-    document.getElementById('edit-mov-pago').value = mov.Pago ? 'true' : 'false';
-    document.getElementById('modal-editar-mov').classList.add('active');
-  }
-
-  function fecharModalMovimentacao() {
-    document.getElementById('modal-editar-mov').classList.remove('active');
-  }
-
-  async function salvarEdicaoMovimentacao() {
-    const id = document.getElementById('edit-mov-id').value;
-    const lancamentoId = document.getElementById('edit-mov-lancamento').value;
-    const data = document.getElementById('edit-mov-data').value;
-    const valor = document.getElementById('edit-mov-valor').value;
-    const pago = document.getElementById('edit-mov-pago').value === 'true';
-
-    if (!lancamentoId) return toast('Selecione um lançamento.');
-    if (!data || !valor) return toast('Preencha data e valor.');
-
-    try {
-      const msg = await chamarAPI('editarMovimentacao', { id, lancamentoId, data, valor, pago });
-      toast(msg);
-      fecharModalMovimentacao();
-      carregarMovimentacoes();
-      carregarDashboard();
-      carregarHistorico();
-    } catch (err) {
-      toast(err.message);
-    }
-  }
-
-  async function excluirMovimentacaoAtual() {
-    const id = document.getElementById('edit-mov-id').value;
-    if (!confirm('Excluir esta movimentação? Isso fica registrado no Histórico de Alterações.')) return;
-
-    try {
-      const msg = await chamarAPI('excluirMovimentacao', { id });
-      toast(msg);
-      fecharModalMovimentacao();
-      carregarMovimentacoes();
-      carregarDashboard();
-      carregarHistorico();
-    } catch (err) {
-      toast(err.message);
-    }
-  }
-
-  /* ---------- CARTÃO DE CRÉDITO ---------- */
-  async function carregarCartoes() {
-    try {
-      const cartoes = await chamarAPI('getCartoes');
-      renderCartoes(cartoes);
-      preencherSelectCartoes(cartoes);
-    } catch (err) {
-      toast(err.message);
-    }
-  }
-
-  function preencherSelectCartoes(cartoes) {
-    const sel = document.getElementById('compra-cartao');
-    if (!cartoes.length) {
-      sel.innerHTML = '<option value="">Cadastre um cartão primeiro</option>';
-      return;
-    }
-    sel.innerHTML = cartoes
-      .map(c => '<option value="' + c.ID + '">' + c.Nome + ' (disponível ' + moeda(c.LimiteDisponivel) + ')</option>')
-      .join('');
-  }
-
-  function renderCartoes(cartoes) {
-    const body = document.getElementById('cartoes-body');
-    if (!cartoes.length) {
-      body.innerHTML = '<tr><td colspan="6" class="empty">Nenhum cartão cadastrado ainda.</td></tr>';
-      return;
-    }
-    body.innerHTML = cartoes
-      .map(
-        c =>
-          '<tr><td>' + c.Nome + '</td><td class="num">' + moeda(c.LimiteTotal) + '</td>' +
-          '<td class="num">' + moeda(c.LimiteUtilizado) + '</td>' +
-          '<td class="num">' + moeda(c.LimiteDisponivel) + '</td>' +
-          '<td>dia ' + c.DiaFechamento + '</td><td>dia ' + c.DiaVencimento + '</td></tr>'
-      )
-      .join('');
-  }
-
-  async function salvarCartao() {
-    const nome = document.getElementById('cartao-nome').value.trim();
-    const limiteTotal = document.getElementById('cartao-limite').value;
-    const diaFechamento = document.getElementById('cartao-fechamento').value;
-    const diaVencimento = document.getElementById('cartao-vencimento').value;
-    if (!nome || !limiteTotal || !diaFechamento || !diaVencimento) {
-      return toast('Preencha todos os campos do cartão.');
-    }
-
-    try {
-      await chamarAPI('addCartao', { nome, limiteTotal, diaFechamento, diaVencimento, ativo: true });
-      toast('Cartão cadastrado!');
-      document.getElementById('cartao-nome').value = '';
-      document.getElementById('cartao-limite').value = '';
-      document.getElementById('cartao-fechamento').value = '';
-      document.getElementById('cartao-vencimento').value = '';
-      carregarCartoes();
-    } catch (err) {
-      toast(err.message);
-    }
-  }
-
-  async function carregarComprasParceladas() {
-    try {
-      const compras = await chamarAPI('getComprasParceladas');
-      renderComprasParceladas(compras);
-    } catch (err) {
-      toast(err.message);
-    }
-  }
-
-  function renderComprasParceladas(compras) {
-    const body = document.getElementById('compras-body');
-    if (!compras.length) {
-      body.innerHTML = '<tr><td colspan="6" class="empty">Nenhuma compra parcelada registrada ainda.</td></tr>';
-      return;
-    }
-    body.innerHTML = compras
-      .map(
-        c =>
-          '<tr><td>' + c.Descricao + '</td><td>' + c.NomeCartao + '</td>' +
-          '<td class="num">' + moeda(c.ValorTotal) + '</td><td>' + c.NumParcelas + 'x</td>' +
-          '<td class="num">' + moeda(c.ValorParcela) + '</td><td>' + dataBR(c.DataCompra) + '</td></tr>'
-      )
-      .join('');
-  }
-
-  async function salvarCompraParcelada() {
-    const cartaoId = document.getElementById('compra-cartao').value;
-    const lancamentoId = document.getElementById('compra-lancamento').value;
-    const descricao = document.getElementById('compra-descricao').value.trim();
-    const valorTotal = document.getElementById('compra-valor').value;
-    const numParcelas = document.getElementById('compra-parcelas').value;
-    const dataCompra = document.getElementById('compra-data').value;
-
-    if (!cartaoId) return toast('Cadastre um cartão primeiro.');
-    if (!lancamentoId) return toast('Cadastre um lançamento primeiro.');
-    if (!descricao) return toast('Descreva a compra.');
-    if (!valorTotal || !numParcelas || !dataCompra) return toast('Preencha valor, parcelas e data da compra.');
-
-    try {
-      const msg = await chamarAPI('addCompraParcelada', {
-        cartaoId, lancamentoId, descricao, valorTotal, numParcelas, dataCompra
-      });
-      toast(msg);
-      document.getElementById('compra-descricao').value = '';
-      document.getElementById('compra-valor').value = '';
-      document.getElementById('compra-parcelas').value = '1';
-      carregarCartoes();
-      carregarComprasParceladas();
-      carregarMovimentacoes();
-      carregarDashboard();
-    } catch (err) {
-      toast(err.message);
-    }
-  }
-
-  /* ---------- CUSTOS RECORRENTES ---------- */
-  async function carregarRecorrentes() {
-    try {
-      const recs = await chamarAPI('getRecorrentes');
-      renderRecorrentes(recs);
-    } catch (err) {
-      toast(err.message);
-    }
-  }
-
-  function renderRecorrentes(recs) {
-    const body = document.getElementById('recs-body');
-    if (!recs.length) {
-      body.innerHTML = '<tr><td colspan="5" class="empty">Nenhum custo recorrente cadastrado ainda.</td></tr>';
-      return;
-    }
-    body.innerHTML = recs
-      .map(
-        r =>
-          '<tr><td>' + r.NomeLancamento + '</td><td class="num">' + moeda(r.Valor) + '</td><td>' + r.DiaVencimento + '</td>' +
-          '<td>' + dataBR(r.ProximoVencimento) + '</td><td>' +
-          '<span class="stamp ' + (r.Ativo ? 'pago' : 'pendente') + '" onclick="alternarAtivo(' + r.ID + ',' + (!r.Ativo) + ')">' +
-          (r.Ativo ? 'ATIVO' : 'INATIVO') + '</span></td></tr>'
-      )
-      .join('');
-  }
-
-  async function salvarRecorrente() {
-    const lancamentoId = document.getElementById('rec-lancamento').value;
-    const valor = document.getElementById('rec-valor').value;
-    const dataInicio = document.getElementById('rec-inicio').value;
-    const diaVencimento = document.getElementById('rec-dia').value;
-    const ativo = document.getElementById('rec-ativo').value === 'true';
-    if (!lancamentoId) return toast('Cadastre um lançamento primeiro.');
-    if (!valor || !dataInicio || !diaVencimento) return toast('Preencha valor, data de início e dia de vencimento.');
-
-    try {
-      await chamarAPI('addRecorrente', { lancamentoId, valor, dataInicio, diaVencimento, ativo });
-      toast('Custo recorrente cadastrado!');
-      carregarRecorrentes();
-    } catch (err) {
-      toast(err.message);
-    }
-  }
-
-  async function alternarAtivo(id, novoAtivo) {
-    try {
-      await chamarAPI('atualizarAtivoRecorrente', { id, ativo: novoAtivo });
-      carregarRecorrentes();
-    } catch (err) {
-      toast(err.message);
-    }
-  }
-
-  async function lancarPendentes() {
-    try {
-      const msg = await chamarAPI('lancarRecorrentesPendentes');
-      toast(msg);
-      carregarMovimentacoes();
-      carregarRecorrentes();
-      carregarDashboard();
-    } catch (err) {
-      toast(err.message);
-    }
-  }
-
-  /* ---------- DASHBOARD ---------- */
-  async function carregarDashboard() {
-    try {
-      const d = await chamarAPI('getDashboard');
-      renderDashboard(d);
-    } catch (err) {
-      toast(err.message);
-    }
-  }
-
-  function renderDashboard(d) {
-    const grid = document.getElementById('kpi-grid');
-    grid.innerHTML =
-      kpiCard('Saldo atual', moeda(d.saldoAtual), d.saldoAtual >= 0) +
-      kpiCard('Saldo previsto', moeda(d.saldoPrevisto), d.saldoPrevisto >= 0) +
-      kpiCard('Gasto sugerido / dia', moeda(d.gastoSugerido) + ' <small>(' + d.diasRestantes + ' dias)</small>', d.gastoSugerido >= 0) +
-      kpiCard('% da renda gasta no mês', d.percentualRendaGasta.toFixed(1) + '%', d.percentualRendaGasta <= 100) +
-      kpiCard('Gasto permitido até hoje', moeda(d.gastoPermitidoAteHoje), true) +
-      kpiCard('Parcelas futuras no cartão', moeda(d.parcelasCartaoFuturas), true);
-  }
-
-  function kpiCard(label, value, positivo) {
-    return (
-      '<div class="kpi-card ' + (positivo ? 'positive' : 'negative') + '">' +
-      '<div class="label">' + label + '</div>' +
-      '<div class="value num">' + value + '</div></div>'
-    );
-  }
-
-  /* ---------- CONFIG ---------- */
-  async function carregarConfig() {
-    try {
-      const cfg = await chamarAPI('getConfig');
-      document.getElementById('cfg-renda').value = cfg.RendaMensal || 0;
-      document.getElementById('cfg-saldo').value = cfg.SaldoInicial || 0;
-    } catch (err) {
-      toast(err.message);
-    }
-  }
-
-  async function salvarConfiguracao() {
-    const rendaMensal = document.getElementById('cfg-renda').value;
-    const saldoInicial = document.getElementById('cfg-saldo').value;
-    try {
-      await chamarAPI('salvarConfig', { rendaMensal, saldoInicial });
-      toast('Configurações salvas!');
-      carregarDashboard();
-    } catch (err) {
-      toast(err.message);
-    }
-  }
-</script>
+</div>
+
+<div class="toast hidden" id="toast">
+  <div class="toast-title" id="toast-title">Aviso</div>
+  <div id="toast-msg"></div>
+</div>
+
+<!--
+  Ordem importa: firebase-init.js exporta `db`, app.js importa dele. Os dois
+  precisam ser type="module" — não dá pra abrir este arquivo direto do disco
+  (file://) para testar, veja o README sobre isso.
+-->
+<script type="module" src="firebase-init.js"></script>
+<script type="module" src="app.js"></script>
 </body>
 </html>
