@@ -100,6 +100,11 @@ tbody tr.linha-clicavel{cursor:pointer;}
 .modal-box h2{font-family:var(--display);font-weight:800;font-size:17px;margin-bottom:6px;}
 .modal-box .field{margin-bottom:4px;}
 
+.select-add{display:flex;gap:6px;align-items:stretch;}
+.select-add select{flex:1;min-width:0;}
+.btn-add-inline{flex:none;width:40px;border-radius:9px;border:1.5px solid var(--roxo);background:var(--accent-soft);color:var(--roxo);font-weight:800;font-size:17px;cursor:pointer;line-height:1;}
+.btn-add-inline:hover{background:var(--roxo);color:#fff;}
+
 @media (max-width:640px){
   .app{padding:16px 14px 80px;}
   .kpi-grid{grid-template-columns:1fr 1fr;gap:10px;}

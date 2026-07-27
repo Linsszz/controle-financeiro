@@ -68,7 +68,10 @@
       <div class="row">
         <div class="field">
           <label>Lançamento</label>
-          <select id="mov-lancamento"></select>
+          <div class="select-add">
+            <select id="mov-lancamento"></select>
+            <button type="button" class="btn-add-inline" data-abrir-novo-lancamento="mov-lancamento" title="Cadastrar novo lançamento">+</button>
+          </div>
         </div>
         <div class="field">
           <label>Data</label>
@@ -87,11 +90,19 @@
         </div>
         <button class="btn btn-primary" id="btn-add-movimentacao">Adicionar</button>
       </div>
-      <p class="hint">Não achou o lançamento? <a href="#" id="link-ir-lancamentos">Cadastre um novo tipo de lançamento</a> primeiro.</p>
+      <p class="hint">Não achou o lançamento? Use o botão "+" ao lado do campo.</p>
     </div>
 
     <div class="card">
       <h2>Movimentações cadastradas</h2>
+      <div class="row">
+        <div class="field" style="max-width:220px;">
+          <label>Filtrar por mês</label>
+          <input type="month" id="mov-filtro-mes">
+        </div>
+        <button class="btn" id="btn-mov-todos-meses">Ver todos os meses</button>
+      </div>
+      <div class="kpi-grid" id="mov-kpi-grid" style="margin-top:16px;"></div>
       <table>
         <thead><tr><th>Data</th><th>Lançamento</th><th>Tipo</th><th>Categoria</th><th>Valor</th><th>Situação</th></tr></thead>
         <tbody id="movs-body"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
@@ -138,6 +149,7 @@
   <!-- CARTÃO DE CRÉDITO -->
   <section id="view-cartao" class="view">
     <header class="top"><div><h1>Cartão de Crédito</h1></div></header>
+    <div class="kpi-grid" id="cartao-kpi-grid"></div>
     <div class="card">
       <h2>Novo cartão</h2>
       <div class="row">
@@ -163,9 +175,10 @@
 
     <div class="card">
       <h2>Cartões cadastrados</h2>
+      <p class="hint" style="margin-top:0;">Clique numa linha para editar o cartão.</p>
       <table>
-        <thead><tr><th>Cartão</th><th>Limite total</th><th>Utilizado</th><th>Disponível</th><th>Fecha</th><th>Vence</th></tr></thead>
-        <tbody id="cartoes-body"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
+        <thead><tr><th>Cartão</th><th>Limite total</th><th>Utilizado</th><th>Disponível</th><th>Fecha</th><th>Vence</th><th>Ativo</th></tr></thead>
+        <tbody id="cartoes-body"><tr><td colspan="7" class="empty">Carregando…</td></tr></tbody>
       </table>
     </div>
 
@@ -178,7 +191,10 @@
         </div>
         <div class="field">
           <label>Lançamento</label>
-          <select id="compra-lancamento"></select>
+          <div class="select-add">
+            <select id="compra-lancamento"></select>
+            <button type="button" class="btn-add-inline" data-abrir-novo-lancamento="compra-lancamento" title="Cadastrar novo lançamento">+</button>
+          </div>
         </div>
         <div class="field">
           <label>Descrição</label>
@@ -205,6 +221,7 @@
 
     <div class="card">
       <h2>Compras parceladas</h2>
+      <p class="hint" style="margin-top:0;">Clique numa linha para editar a descrição ou excluir a compra.</p>
       <table>
         <thead><tr><th>Descrição</th><th>Cartão</th><th>Valor total</th><th>Parcelas</th><th>Valor/parcela</th><th>Data da compra</th></tr></thead>
         <tbody id="compras-body"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
@@ -215,12 +232,16 @@
   <!-- CUSTOS RECORRENTES -->
   <section id="view-recorrentes" class="view">
     <header class="top"><div><h1>Custos Recorrentes</h1></div></header>
+    <div class="kpi-grid" id="rec-kpi-grid"></div>
     <div class="card">
       <h2>Novo custo recorrente</h2>
       <div class="row">
         <div class="field">
           <label>Lançamento</label>
-          <select id="rec-lancamento"></select>
+          <div class="select-add">
+            <select id="rec-lancamento"></select>
+            <button type="button" class="btn-add-inline" data-abrir-novo-lancamento="rec-lancamento" title="Cadastrar novo lançamento">+</button>
+          </div>
         </div>
         <div class="field">
           <label>Valor (R$)</label>
@@ -247,6 +268,7 @@
 
     <div class="card">
       <h2>Custos recorrentes</h2>
+      <p class="hint" style="margin-top:0;">Clique numa linha para editar o custo recorrente. O selo ATIVO/INATIVO alterna direto no clique.</p>
       <p class="hint">O sistema já tenta lançar os recorrentes pendentes do mês automaticamente ao abrir esta página — o botão abaixo é só pra forçar a checagem na hora.</p>
       <button class="btn btn-primary" id="btn-lancar-pendentes" style="margin-bottom:14px;">Lançar recorrentes pendentes deste mês</button>
       <table>
@@ -324,7 +346,10 @@
     <input type="hidden" id="edit-mov-id">
     <div class="field" style="margin-top:14px;">
       <label>Lançamento</label>
-      <select id="edit-mov-lancamento"></select>
+      <div class="select-add">
+        <select id="edit-mov-lancamento"></select>
+        <button type="button" class="btn-add-inline" data-abrir-novo-lancamento="edit-mov-lancamento" title="Cadastrar novo lançamento">+</button>
+      </div>
     </div>
     <div class="field" style="margin-top:10px;">
       <label>Data</label>
@@ -346,6 +371,131 @@
       <div class="row" style="width:auto;">
         <button class="btn" id="btn-cancelar-edicao-mov">Cancelar</button>
         <button class="btn btn-primary" id="btn-salvar-edicao-mov">Salvar alterações</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: novo lançamento (reutilizado a partir de qualquer campo "Lançamento") -->
+<div class="modal-overlay" id="modal-novo-lancamento">
+  <div class="modal-box">
+    <h2>Novo lançamento</h2>
+    <div class="field" style="margin-top:14px;">
+      <label>Nome</label>
+      <input type="text" id="novo-lanc-nome" placeholder="Ex: Salário, Aluguel, Mercado...">
+    </div>
+    <div class="field" style="margin-top:10px;">
+      <label>Tipo</label>
+      <select id="novo-lanc-tipo">
+        <option value="Entrada">Entrada</option>
+        <option value="Saida">Saída</option>
+      </select>
+    </div>
+    <div class="field" style="margin-top:10px;">
+      <label>Categoria</label>
+      <input type="text" id="novo-lanc-categoria" list="lista-categorias" placeholder="Ex: Moradia, Lazer, Renda..." autocomplete="off">
+    </div>
+    <div class="row" style="justify-content:flex-end; margin-top:18px;">
+      <button class="btn" id="btn-cancelar-novo-lancamento">Cancelar</button>
+      <button class="btn btn-primary" id="btn-salvar-novo-lancamento">Cadastrar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: editar/excluir cartão -->
+<div class="modal-overlay" id="modal-editar-cartao">
+  <div class="modal-box">
+    <h2>Editar cartão</h2>
+    <input type="hidden" id="edit-cartao-id">
+    <div class="field" style="margin-top:14px;">
+      <label>Nome do cartão</label>
+      <input type="text" id="edit-cartao-nome">
+    </div>
+    <div class="field" style="margin-top:10px;">
+      <label>Limite total (R$)</label>
+      <input type="number" step="0.01" id="edit-cartao-limite">
+    </div>
+    <div class="field" style="margin-top:10px;">
+      <label>Dia de fechamento</label>
+      <input type="number" min="1" max="31" id="edit-cartao-fechamento">
+    </div>
+    <div class="field" style="margin-top:10px;">
+      <label>Dia de vencimento</label>
+      <input type="number" min="1" max="31" id="edit-cartao-vencimento">
+    </div>
+    <div class="field" style="margin-top:10px;">
+      <label>Ativo</label>
+      <select id="edit-cartao-ativo">
+        <option value="true">Sim</option>
+        <option value="false">Não</option>
+      </select>
+    </div>
+    <div class="row" style="justify-content:space-between; margin-top:18px;">
+      <button class="btn btn-danger" id="btn-excluir-cartao">Excluir</button>
+      <div class="row" style="width:auto;">
+        <button class="btn" id="btn-cancelar-edicao-cartao">Cancelar</button>
+        <button class="btn btn-primary" id="btn-salvar-edicao-cartao">Salvar alterações</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: editar/excluir custo recorrente -->
+<div class="modal-overlay" id="modal-editar-recorrente">
+  <div class="modal-box">
+    <h2>Editar custo recorrente</h2>
+    <input type="hidden" id="edit-rec-id">
+    <div class="field" style="margin-top:14px;">
+      <label>Lançamento</label>
+      <div class="select-add">
+        <select id="edit-rec-lancamento"></select>
+        <button type="button" class="btn-add-inline" data-abrir-novo-lancamento="edit-rec-lancamento" title="Cadastrar novo lançamento">+</button>
+      </div>
+    </div>
+    <div class="field" style="margin-top:10px;">
+      <label>Valor (R$)</label>
+      <input type="number" step="0.01" id="edit-rec-valor">
+    </div>
+    <div class="field" style="margin-top:10px;">
+      <label>Data início</label>
+      <input type="date" id="edit-rec-inicio">
+    </div>
+    <div class="field" style="margin-top:10px;">
+      <label>Dia vencimento</label>
+      <input type="number" min="1" max="31" id="edit-rec-dia">
+    </div>
+    <div class="field" style="margin-top:10px;">
+      <label>Ativo</label>
+      <select id="edit-rec-ativo">
+        <option value="true">Sim</option>
+        <option value="false">Não</option>
+      </select>
+    </div>
+    <div class="row" style="justify-content:space-between; margin-top:18px;">
+      <button class="btn btn-danger" id="btn-excluir-recorrente">Excluir</button>
+      <div class="row" style="width:auto;">
+        <button class="btn" id="btn-cancelar-edicao-rec">Cancelar</button>
+        <button class="btn btn-primary" id="btn-salvar-edicao-rec">Salvar alterações</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: editar/excluir compra parcelada -->
+<div class="modal-overlay" id="modal-editar-compra">
+  <div class="modal-box">
+    <h2>Editar compra parcelada</h2>
+    <input type="hidden" id="edit-compra-id">
+    <div class="field" style="margin-top:14px;">
+      <label>Descrição</label>
+      <input type="text" id="edit-compra-descricao">
+    </div>
+    <p class="hint">Valor, parcelas, cartão e lançamento não podem ser editados aqui — envolveriam recalcular todas as parcelas já lançadas. Pra corrigir algo assim, exclua esta compra e lance de novo.</p>
+    <div class="row" style="justify-content:space-between; margin-top:18px;">
+      <button class="btn btn-danger" id="btn-excluir-compra">Excluir compra</button>
+      <div class="row" style="width:auto;">
+        <button class="btn" id="btn-cancelar-edicao-compra">Cancelar</button>
+        <button class="btn btn-primary" id="btn-salvar-edicao-compra">Salvar alterações</button>
       </div>
     </div>
   </div>

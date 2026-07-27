@@ -17,11 +17,18 @@ const STATE = {
   recorrentes: [],
   historico: [],
   feriados: [],
-  config: { rendaMensal: 0, saldoInicial: 0 }
+  config: { rendaMensal: 0, saldoInicial: 0 },
+  filtroMovMes: ""
 };
 
 let recorrentesCarregados = false;
 let jaVerificouRecorrentesPendentes = false;
+
+// Quando o modal "Novo lançamento" é aberto a partir de um campo específico
+// (ex: o select de Movimentações), guardamos aqui pra, depois de salvar,
+// selecionar automaticamente o lançamento recém-criado nesse campo.
+let selectAlvoNovoLancamento = null;
+let pendingSelecaoLancamento = null; // { selectId, lancamentoId }
 
 /* ══════════════ HELPERS ══════════════ */
 
@@ -201,11 +208,6 @@ function trocarView(nome) {
   fecharMenuMobile();
 }
 
-document.getElementById("link-ir-lancamentos").addEventListener("click", (e) => {
-  e.preventDefault();
-  trocarView("lancamentos");
-});
-
 function fecharMenuMobile() {
   document.getElementById("sidebar").classList.remove("mobile-open");
   document.getElementById("sidebar-backdrop").classList.remove("active");
@@ -254,12 +256,71 @@ function preencherSelectsLancamento() {
   const opcoes = STATE.lancamentos.map((l) => (
     `<option value="${l.id}">${esc(l.nome)} (${l.tipo === "Entrada" ? "Entrada" : "Saída"} — ${esc(l.categoria)})</option>`
   )).join("");
-  ["mov-lancamento", "rec-lancamento", "compra-lancamento", "edit-mov-lancamento"].forEach((id) => {
+  ["mov-lancamento", "rec-lancamento", "compra-lancamento", "edit-mov-lancamento", "edit-rec-lancamento"].forEach((id) => {
     const sel = document.getElementById(id);
     const valorAtual = sel.value;
     sel.innerHTML = opcoes;
-    if (valorAtual) sel.value = valorAtual;
+    if (pendingSelecaoLancamento && pendingSelecaoLancamento.selectId === id && STATE.lancamentos.some((l) => l.id === pendingSelecaoLancamento.lancamentoId)) {
+      sel.value = pendingSelecaoLancamento.lancamentoId;
+      pendingSelecaoLancamento = null;
+    } else if (valorAtual) {
+      sel.value = valorAtual;
+    }
   });
+}
+
+/* ══════════════ MODAL: NOVO LANÇAMENTO (reutilizado em várias telas) ══════════════ */
+
+function abrirModalNovoLancamento(selectAlvoId) {
+  selectAlvoNovoLancamento = selectAlvoId || null;
+  document.getElementById("novo-lanc-nome").value = "";
+  document.getElementById("novo-lanc-tipo").value = "Entrada";
+  document.getElementById("novo-lanc-categoria").value = "";
+  document.getElementById("modal-novo-lancamento").classList.add("active");
+  document.getElementById("novo-lanc-nome").focus();
+}
+function fecharModalNovoLancamento() {
+  document.getElementById("modal-novo-lancamento").classList.remove("active");
+  selectAlvoNovoLancamento = null;
+}
+document.querySelectorAll("[data-abrir-novo-lancamento]").forEach((btn) => {
+  btn.addEventListener("click", () => abrirModalNovoLancamento(btn.dataset.abrirNovoLancamento));
+});
+document.getElementById("btn-cancelar-novo-lancamento").addEventListener("click", fecharModalNovoLancamento);
+document.getElementById("modal-novo-lancamento").addEventListener("click", (e) => {
+  if (e.target.id === "modal-novo-lancamento") fecharModalNovoLancamento();
+});
+document.getElementById("btn-salvar-novo-lancamento").addEventListener("click", async () => {
+  const nome = document.getElementById("novo-lanc-nome").value.trim();
+  const tipo = document.getElementById("novo-lanc-tipo").value;
+  const categoria = document.getElementById("novo-lanc-categoria").value.trim();
+  if (!nome || !categoria) return mostrarToast("Preencha nome e categoria.", true);
+  try {
+    const ref = await addDoc(collection(db, "lancamentos"), { nome, tipo, categoria, createdAt: serverTimestamp() });
+    if (selectAlvoNovoLancamento) {
+      pendingSelecaoLancamento = { selectId: selectAlvoNovoLancamento, lancamentoId: ref.id };
+    }
+    mostrarToast("Lançamento cadastrado!");
+    fecharModalNovoLancamento();
+  } catch (err) {
+    mostrarToast("Não foi possível salvar: " + err.message, true);
+  }
+});
+
+function filtrarPorMes(lista) {
+  if (!STATE.filtroMovMes) return lista;
+  return lista.filter((m) => String(m.data || "").slice(0, 7) === STATE.filtroMovMes);
+}
+
+function renderMovKpis(filtradas) {
+  let totalPago = 0, totalNaoPago = 0, qtdPago = 0, qtdNaoPago = 0;
+  filtradas.forEach((m) => {
+    if (m.pago) { totalPago += Number(m.valor) || 0; qtdPago++; }
+    else { totalNaoPago += Number(m.valor) || 0; qtdNaoPago++; }
+  });
+  document.getElementById("mov-kpi-grid").innerHTML =
+    kpiCard("Pago no período", moeda(totalPago) + ` <small>(${qtdPago})</small>`, true) +
+    kpiCard("A pagar no período", moeda(totalNaoPago) + ` <small>(${qtdNaoPago})</small>`, totalNaoPago === 0);
 }
 
 function renderMovimentacoes() {
@@ -269,11 +330,13 @@ function renderMovimentacoes() {
     return { ...m, nomeLancamento: l.nome || "(excluído)", tipo: l.tipo || "", categoria: l.categoria || "" };
   });
 
+  const filtradas = filtrarPorMes(enriquecidas);
+
   const body = document.getElementById("movs-body");
-  if (!enriquecidas.length) {
-    body.innerHTML = '<tr><td colspan="6" class="empty">Nenhuma movimentação registrada ainda.</td></tr>';
+  if (!filtradas.length) {
+    body.innerHTML = `<tr><td colspan="6" class="empty">${STATE.filtroMovMes ? "Nenhuma movimentação neste mês." : "Nenhuma movimentação registrada ainda."}</td></tr>`;
   } else {
-    body.innerHTML = enriquecidas.map((m) => (
+    body.innerHTML = filtradas.map((m) => (
       `<tr class="linha-clicavel" data-abrir-mov="${m.id}">` +
       `<td>${dataBR(m.data)}</td><td>${esc(m.nomeLancamento)}</td>` +
       `<td><span class="badge-tipo ${m.tipo}">${m.tipo === "Entrada" ? "Entrada" : (m.tipo ? "Saída" : "")}</span></td>` +
@@ -291,8 +354,19 @@ function renderMovimentacoes() {
     });
   }
 
+  renderMovKpis(filtradas);
   renderDashMovs(enriquecidas.slice(0, 8));
 }
+
+document.getElementById("mov-filtro-mes").addEventListener("change", (e) => {
+  STATE.filtroMovMes = e.target.value;
+  renderMovimentacoes();
+});
+document.getElementById("btn-mov-todos-meses").addEventListener("click", () => {
+  STATE.filtroMovMes = "";
+  document.getElementById("mov-filtro-mes").value = "";
+  renderMovimentacoes();
+});
 
 function renderDashMovs(movs) {
   const body = document.getElementById("dash-movs-body");
@@ -308,23 +382,107 @@ function renderDashMovs(movs) {
   )).join("");
 }
 
+function renderCartaoKpis() {
+  let totalLimite = 0, totalUtilizado = 0;
+  STATE.cartoes.forEach((c) => {
+    totalLimite += Number(c.limiteTotal) || 0;
+    totalUtilizado += calcularLimiteUtilizado(c.id);
+  });
+  const totalDisponivel = totalLimite - totalUtilizado;
+  document.getElementById("cartao-kpi-grid").innerHTML =
+    kpiCard("Limite total (todos os cartões)", moeda(totalLimite), true) +
+    kpiCard("Soma de parcelas ativas", moeda(totalUtilizado), totalUtilizado === 0) +
+    kpiCard("Disponível (todos os cartões)", moeda(totalDisponivel), totalDisponivel >= 0);
+}
+
 function renderCartoes() {
   const body = document.getElementById("cartoes-body");
   if (!STATE.cartoes.length) {
-    body.innerHTML = '<tr><td colspan="6" class="empty">Nenhum cartão cadastrado ainda.</td></tr>';
+    body.innerHTML = '<tr><td colspan="7" class="empty">Nenhum cartão cadastrado ainda.</td></tr>';
   } else {
     body.innerHTML = STATE.cartoes.map((c) => {
       const utilizado = calcularLimiteUtilizado(c.id);
       const disponivel = (Number(c.limiteTotal) || 0) - utilizado;
+      const ativo = c.ativo !== false;
       return (
-        `<tr><td>${esc(c.nome)}</td><td class="num">${moeda(c.limiteTotal)}</td>` +
+        `<tr class="linha-clicavel" data-abrir-cartao="${c.id}"><td>${esc(c.nome)}</td><td class="num">${moeda(c.limiteTotal)}</td>` +
         `<td class="num">${moeda(utilizado)}</td><td class="num">${moeda(disponivel)}</td>` +
-        `<td>dia ${c.diaFechamento}</td><td>dia ${c.diaVencimento}</td></tr>`
+        `<td>dia ${c.diaFechamento}</td><td>dia ${c.diaVencimento}</td>` +
+        `<td><span class="stamp ${ativo ? "ativo" : "inativo"}" data-alternar-cartao-ativo="${c.id}" data-novo-ativo="${!ativo}">${ativo ? "ATIVO" : "INATIVO"}</span></td></tr>`
       );
     }).join("");
+    document.querySelectorAll("[data-abrir-cartao]").forEach((tr) => {
+      tr.addEventListener("click", () => abrirModalEditarCartao(tr.dataset.abrirCartao));
+    });
+    document.querySelectorAll("[data-alternar-cartao-ativo]").forEach((stamp) => {
+      stamp.addEventListener("click", (e) => {
+        e.stopPropagation();
+        alternarAtivoCartao(stamp.dataset.alternarCartaoAtivo, stamp.dataset.novoAtivo === "true");
+      });
+    });
   }
   preencherSelectCartoes();
+  renderCartaoKpis();
 }
+
+async function alternarAtivoCartao(id, novoAtivo) {
+  try {
+    await updateDoc(doc(db, "cartoes", id), { ativo: novoAtivo });
+  } catch (err) {
+    mostrarToast("Não foi possível atualizar: " + err.message, true);
+  }
+}
+
+function abrirModalEditarCartao(id) {
+  const c = STATE.cartoes.find((x) => x.id === id);
+  if (!c) return mostrarToast("Cartão não encontrado.", true);
+  document.getElementById("edit-cartao-id").value = c.id;
+  document.getElementById("edit-cartao-nome").value = c.nome;
+  document.getElementById("edit-cartao-limite").value = c.limiteTotal;
+  document.getElementById("edit-cartao-fechamento").value = c.diaFechamento;
+  document.getElementById("edit-cartao-vencimento").value = c.diaVencimento;
+  document.getElementById("edit-cartao-ativo").value = c.ativo !== false ? "true" : "false";
+  document.getElementById("modal-editar-cartao").classList.add("active");
+}
+function fecharModalEditarCartao() {
+  document.getElementById("modal-editar-cartao").classList.remove("active");
+}
+document.getElementById("btn-cancelar-edicao-cartao").addEventListener("click", fecharModalEditarCartao);
+document.getElementById("modal-editar-cartao").addEventListener("click", (e) => {
+  if (e.target.id === "modal-editar-cartao") fecharModalEditarCartao();
+});
+
+document.getElementById("btn-salvar-edicao-cartao").addEventListener("click", async () => {
+  const id = document.getElementById("edit-cartao-id").value;
+  const nome = document.getElementById("edit-cartao-nome").value.trim();
+  const limiteTotal = Number(document.getElementById("edit-cartao-limite").value);
+  const diaFechamento = Number(document.getElementById("edit-cartao-fechamento").value);
+  const diaVencimento = Number(document.getElementById("edit-cartao-vencimento").value);
+  const ativo = document.getElementById("edit-cartao-ativo").value === "true";
+  if (!nome || !limiteTotal || !diaFechamento || !diaVencimento) return mostrarToast("Preencha todos os campos.", true);
+  if (diaFechamento < 1 || diaFechamento > 31 || diaVencimento < 1 || diaVencimento > 31) {
+    return mostrarToast("Dia de fechamento/vencimento inválido (1 a 31).", true);
+  }
+  try {
+    await updateDoc(doc(db, "cartoes", id), { nome, limiteTotal, diaFechamento, diaVencimento, ativo });
+    mostrarToast("Cartão atualizado!");
+    fecharModalEditarCartao();
+  } catch (err) {
+    mostrarToast("Não foi possível salvar: " + err.message, true);
+  }
+});
+
+document.getElementById("btn-excluir-cartao").addEventListener("click", async () => {
+  const id = document.getElementById("edit-cartao-id").value;
+  if (!confirm("Excluir este cartão? Movimentações e compras já lançadas continuam existindo, só deixam de referenciar um cartão válido.")) return;
+  try {
+    await deleteDoc(doc(db, "cartoes", id));
+    mostrarToast("Cartão excluído.");
+    fecharModalEditarCartao();
+  } catch (err) {
+    mostrarToast("Não foi possível excluir: " + err.message, true);
+  }
+});
 
 function preencherSelectCartoes() {
   const sel = document.getElementById("compra-cartao");
@@ -353,11 +511,68 @@ function renderComprasParceladas() {
     const valorTotal = Number(c.valorTotal) || 0;
     const valorParcela = arredondar2(valorTotal / numParcelas);
     return (
-      `<tr><td>${esc(c.descricao)}</td><td>${esc((mapaCartao[c.cartaoId] || {}).nome || "(excluído)")}</td>` +
+      `<tr class="linha-clicavel" data-abrir-compra="${c.id}"><td>${esc(c.descricao)}</td><td>${esc((mapaCartao[c.cartaoId] || {}).nome || "(excluído)")}</td>` +
       `<td class="num">${moeda(valorTotal)}</td><td>${numParcelas}x</td>` +
       `<td class="num">${moeda(valorParcela)}</td><td>${dataBR(c.dataCompra)}</td></tr>`
     );
   }).join("");
+  document.querySelectorAll("[data-abrir-compra]").forEach((tr) => {
+    tr.addEventListener("click", () => abrirModalEditarCompra(tr.dataset.abrirCompra));
+  });
+}
+
+function abrirModalEditarCompra(id) {
+  const c = STATE.comprasParceladas.find((x) => x.id === id);
+  if (!c) return mostrarToast("Compra não encontrada.", true);
+  document.getElementById("edit-compra-id").value = c.id;
+  document.getElementById("edit-compra-descricao").value = c.descricao;
+  document.getElementById("modal-editar-compra").classList.add("active");
+}
+function fecharModalEditarCompra() {
+  document.getElementById("modal-editar-compra").classList.remove("active");
+}
+document.getElementById("btn-cancelar-edicao-compra").addEventListener("click", fecharModalEditarCompra);
+document.getElementById("modal-editar-compra").addEventListener("click", (e) => {
+  if (e.target.id === "modal-editar-compra") fecharModalEditarCompra();
+});
+
+document.getElementById("btn-salvar-edicao-compra").addEventListener("click", async () => {
+  const id = document.getElementById("edit-compra-id").value;
+  const descricao = document.getElementById("edit-compra-descricao").value.trim();
+  if (!descricao) return mostrarToast("A descrição não pode ficar em branco.", true);
+  try {
+    await updateDoc(doc(db, "comprasParceladas", id), { descricao });
+    mostrarToast("Compra atualizada!");
+    fecharModalEditarCompra();
+  } catch (err) {
+    mostrarToast("Não foi possível salvar: " + err.message, true);
+  }
+});
+
+document.getElementById("btn-excluir-compra").addEventListener("click", async () => {
+  const id = document.getElementById("edit-compra-id").value;
+  if (!confirm("Excluir esta compra? As parcelas ainda não pagas serão removidas de Movimentações. Parcelas já pagas continuam registradas.")) return;
+  try {
+    const parcelasNaoPagas = STATE.movimentacoes.filter((m) => m.compraParceladaId === id && m.pago !== true);
+    for (const p of parcelasNaoPagas) {
+      await deleteDoc(doc(db, "movimentacoes", p.id));
+    }
+    await deleteDoc(doc(db, "comprasParceladas", id));
+    mostrarToast(`Compra excluída (${parcelasNaoPagas.length} parcela(s) pendente(s) removida(s)).`);
+    fecharModalEditarCompra();
+  } catch (err) {
+    mostrarToast("Não foi possível excluir: " + err.message, true);
+  }
+});
+
+function renderRecKpis() {
+  const ativos = STATE.recorrentes.filter((r) => r.ativo === true);
+  const inativos = STATE.recorrentes.filter((r) => r.ativo !== true);
+  const totalMensalAtivos = ativos.reduce((s, r) => s + (Number(r.valor) || 0), 0);
+  document.getElementById("rec-kpi-grid").innerHTML =
+    kpiCard("Recorrentes ativos", String(ativos.length), true) +
+    kpiCard("Recorrentes inativos", String(inativos.length), inativos.length === 0) +
+    kpiCard("Total mensal (ativos)", moeda(totalMensalAtivos), true);
 }
 
 function renderRecorrentes() {
@@ -365,20 +580,77 @@ function renderRecorrentes() {
   const body = document.getElementById("recs-body");
   if (!STATE.recorrentes.length) {
     body.innerHTML = '<tr><td colspan="5" class="empty">Nenhum custo recorrente cadastrado ainda.</td></tr>';
-    return;
+  } else {
+    body.innerHTML = STATE.recorrentes.map((r) => {
+      const nomeLanc = (mapaLanc[r.lancamentoId] || {}).nome || "(excluído)";
+      const prox = calcularProximoVencimento(r.diaVencimento);
+      return (
+        `<tr class="linha-clicavel" data-abrir-recorrente="${r.id}"><td>${esc(nomeLanc)}</td><td class="num">${moeda(r.valor)}</td><td>${r.diaVencimento}</td>` +
+        `<td>${dataBR(prox)}</td><td><span class="stamp ${r.ativo ? "ativo" : "inativo"}" data-alternar-ativo="${r.id}" data-novo-ativo="${!r.ativo}">${r.ativo ? "ATIVO" : "INATIVO"}</span></td></tr>`
+      );
+    }).join("");
+    document.querySelectorAll("[data-abrir-recorrente]").forEach((tr) => {
+      tr.addEventListener("click", () => abrirModalEditarRecorrente(tr.dataset.abrirRecorrente));
+    });
+    document.querySelectorAll("[data-alternar-ativo]").forEach((stamp) => {
+      stamp.addEventListener("click", (e) => {
+        e.stopPropagation();
+        alternarAtivoRecorrente(stamp.dataset.alternarAtivo, stamp.dataset.novoAtivo === "true");
+      });
+    });
   }
-  body.innerHTML = STATE.recorrentes.map((r) => {
-    const nomeLanc = (mapaLanc[r.lancamentoId] || {}).nome || "(excluído)";
-    const prox = calcularProximoVencimento(r.diaVencimento);
-    return (
-      `<tr><td>${esc(nomeLanc)}</td><td class="num">${moeda(r.valor)}</td><td>${r.diaVencimento}</td>` +
-      `<td>${dataBR(prox)}</td><td><span class="stamp ${r.ativo ? "ativo" : "inativo"}" data-alternar-ativo="${r.id}" data-novo-ativo="${!r.ativo}">${r.ativo ? "ATIVO" : "INATIVO"}</span></td></tr>`
-    );
-  }).join("");
-  document.querySelectorAll("[data-alternar-ativo]").forEach((stamp) => {
-    stamp.addEventListener("click", () => alternarAtivoRecorrente(stamp.dataset.alternarAtivo, stamp.dataset.novoAtivo === "true"));
-  });
+  renderRecKpis();
 }
+
+function abrirModalEditarRecorrente(id) {
+  const r = STATE.recorrentes.find((x) => x.id === id);
+  if (!r) return mostrarToast("Custo recorrente não encontrado.", true);
+  preencherSelectsLancamento();
+  document.getElementById("edit-rec-id").value = r.id;
+  document.getElementById("edit-rec-lancamento").value = r.lancamentoId;
+  document.getElementById("edit-rec-valor").value = r.valor;
+  document.getElementById("edit-rec-inicio").value = r.dataInicio;
+  document.getElementById("edit-rec-dia").value = r.diaVencimento;
+  document.getElementById("edit-rec-ativo").value = r.ativo ? "true" : "false";
+  document.getElementById("modal-editar-recorrente").classList.add("active");
+}
+function fecharModalEditarRecorrente() {
+  document.getElementById("modal-editar-recorrente").classList.remove("active");
+}
+document.getElementById("btn-cancelar-edicao-rec").addEventListener("click", fecharModalEditarRecorrente);
+document.getElementById("modal-editar-recorrente").addEventListener("click", (e) => {
+  if (e.target.id === "modal-editar-recorrente") fecharModalEditarRecorrente();
+});
+
+document.getElementById("btn-salvar-edicao-rec").addEventListener("click", async () => {
+  const id = document.getElementById("edit-rec-id").value;
+  const lancamentoId = document.getElementById("edit-rec-lancamento").value;
+  const valor = Number(document.getElementById("edit-rec-valor").value);
+  const dataInicio = document.getElementById("edit-rec-inicio").value;
+  const diaVencimento = Number(document.getElementById("edit-rec-dia").value);
+  const ativo = document.getElementById("edit-rec-ativo").value === "true";
+  if (!lancamentoId) return mostrarToast("Selecione um lançamento.", true);
+  if (!valor || !dataInicio || !diaVencimento) return mostrarToast("Preencha valor, data de início e dia de vencimento.", true);
+  try {
+    await updateDoc(doc(db, "recorrentes", id), { lancamentoId, valor, dataInicio, diaVencimento, ativo });
+    mostrarToast("Custo recorrente atualizado!");
+    fecharModalEditarRecorrente();
+  } catch (err) {
+    mostrarToast("Não foi possível salvar: " + err.message, true);
+  }
+});
+
+document.getElementById("btn-excluir-recorrente").addEventListener("click", async () => {
+  const id = document.getElementById("edit-rec-id").value;
+  if (!confirm("Excluir este custo recorrente? Movimentações já lançadas por ele não são afetadas.")) return;
+  try {
+    await deleteDoc(doc(db, "recorrentes", id));
+    mostrarToast("Custo recorrente excluído.");
+    fecharModalEditarRecorrente();
+  } catch (err) {
+    mostrarToast("Não foi possível excluir: " + err.message, true);
+  }
+});
 
 function renderHistorico() {
   const body = document.getElementById("historico-body");
@@ -811,5 +1083,10 @@ function iniciarListeners() {
 document.getElementById("mov-data").valueAsDate = new Date();
 document.getElementById("rec-inicio").valueAsDate = new Date();
 document.getElementById("compra-data").valueAsDate = new Date();
+
+const hojeInicial = new Date();
+const mesInicial = `${hojeInicial.getFullYear()}-${String(hojeInicial.getMonth() + 1).padStart(2, "0")}`;
+document.getElementById("mov-filtro-mes").value = mesInicial;
+STATE.filtroMovMes = mesInicial;
 
 iniciarListeners();
