@@ -129,12 +129,13 @@ function calcularProximoVencimento(diaVencimento, referencia) {
   return formatarDataISO(venc);
 }
 
-// Em qual mês cai a primeira fatura de uma compra parcelada: se foi feita
-// antes do dia de fechamento, entra na fatura que fecha no mês seguinte; se
-// foi no dia de fechamento ou depois, pula mais um mês.
+// Em qual mês cai a primeira fatura de uma compra (parcelada ou à vista): se
+// foi feita antes do dia de fechamento, ela soma na fatura que está fechando
+// agora (mesmo mês da compra); se foi feita no dia do fechamento ou depois,
+// o fechamento deste mês já passou, então ela cai na fatura do mês seguinte.
 function calcularCicloInicial(dataCompraStr, diaFechamento) {
   const d = parseDataLocal(dataCompraStr);
-  const mes = d.getMonth() + (d.getDate() < diaFechamento ? 1 : 2);
+  const mes = d.getMonth() + (d.getDate() < diaFechamento ? 0 : 1);
   const normalizado = new Date(d.getFullYear(), mes, 1);
   return { ano: normalizado.getFullYear(), mes: normalizado.getMonth() };
 }
@@ -358,7 +359,7 @@ function renderMovimentacoes() {
       `<tr class="linha-clicavel" data-abrir-mov="${m.id}">` +
       `<td>${dataBR(m.data)}</td><td>${esc(m.nomeLancamento)}</td>` +
       `<td><span class="badge-tipo ${m.tipo}">${m.tipo === "Entrada" ? "Entrada" : (m.tipo ? "Saída" : "")}</span></td>` +
-      `<td>${esc(m.categoria)}</td><td>${esc(m.responsavel || "—")}</td><td class="num">${moeda(m.valor)}</td>` +
+      `<td>${esc(m.categoria)}</td><td>${esc(m.responsavel || "")}</td><td class="num">${moeda(m.valor)}</td>` +
       `<td><span class="stamp ${m.pago ? "pago" : "pendente"}" data-alternar-pagamento="${m.id}" data-novo-pago="${!m.pago}">${m.pago ? "PAGO" : "PENDENTE"}</span></td></tr>`
     )).join("");
     document.querySelectorAll("[data-abrir-mov]").forEach((tr) => {
@@ -541,7 +542,7 @@ function renderParcelasCartao() {
     const cartaoNome = (mapaCartao[m.cartaoId] || {}).nome || "(excluído)";
     return (
       `<tr class="linha-clicavel" data-abrir-mov="${m.id}"><td>${dataBR(m.data)}</td><td>${esc(descricao)}</td>` +
-      `<td>${esc(cartaoNome)}</td><td>${esc(m.responsavel || "—")}</td><td class="num">${moeda(m.valor)}</td>` +
+      `<td>${esc(cartaoNome)}</td><td>${esc(m.responsavel || "")}</td><td class="num">${moeda(m.valor)}</td>` +
       `<td><span class="stamp ${m.pago ? "pago" : "pendente"}" data-alternar-pagamento="${m.id}" data-novo-pago="${!m.pago}">${m.pago ? "PAGO" : "PENDENTE"}</span></td></tr>`
     );
   }).join("");
@@ -574,7 +575,7 @@ function renderComprasParceladas() {
     const valorTotal = Number(c.valorTotal) || 0;
     const valorParcela = arredondar2(valorTotal / numParcelas);
     return (
-      `<tr class="linha-clicavel" data-abrir-compra="${c.id}"><td>${esc(c.descricao)}</td><td>${esc(c.responsavel || "—")}</td><td>${esc((mapaCartao[c.cartaoId] || {}).nome || "(excluído)")}</td>` +
+      `<tr class="linha-clicavel" data-abrir-compra="${c.id}"><td>${esc(c.descricao)}</td><td>${esc((mapaCartao[c.cartaoId] || {}).nome || "(excluído)")}</td><td>${esc(c.responsavel || "")}</td>` +
       `<td class="num">${moeda(valorTotal)}</td><td>${numParcelas}x</td>` +
       `<td class="num">${moeda(valorParcela)}</td><td>${dataBR(c.dataCompra)}</td></tr>`
     );
