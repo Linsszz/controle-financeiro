@@ -110,9 +110,9 @@ import {
 // ══════════════ CONFIGURAÇÃO DO DOMÍNIO ══════════════
 const COLECOES = [
   { nome: "lancamentos", label: "Lançamentos", campos: ["nome", "tipo", "categoria"] },
-  { nome: "movimentacoes", label: "Movimentações", campos: ["lancamentoId", "data", "valor", "pago", "origem", "cartaoId", "compraParceladaId"] },
+  { nome: "movimentacoes", label: "Movimentações", campos: ["lancamentoId", "data", "valor", "pago", "responsavel", "origem", "cartaoId", "compraParceladaId"] },
   { nome: "cartoes", label: "Cartões", campos: ["nome", "limiteTotal", "diaFechamento", "diaVencimento", "ativo"] },
-  { nome: "comprasParceladas", label: "Compras parceladas", campos: ["cartaoId", "lancamentoId", "descricao", "valorTotal", "numParcelas", "dataCompra"] },
+  { nome: "comprasParceladas", label: "Compras parceladas", campos: ["cartaoId", "lancamentoId", "descricao", "responsavel", "valorTotal", "numParcelas", "dataCompra"] },
   { nome: "recorrentes", label: "Custos recorrentes", campos: ["lancamentoId", "valor", "dataInicio", "diaVencimento", "ativo", "ultimoMesLancado"] },
   { nome: "historico", label: "Histórico", campos: ["lancamentoId", "nomeLancamento", "campo", "valorAnterior", "valorNovo", "tipoAlteracao"] },
   { nome: "config", label: "Configurações", campos: ["rendaMensal", "saldoInicial"] },

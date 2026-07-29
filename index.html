@@ -47,7 +47,9 @@
 
   <!-- DASHBOARD -->
   <section id="view-dashboard" class="view active">
-    <header class="top"><div><h1>Dashboard</h1></div></header>
+    <header class="top"><div><h1>Dashboard</h1>
+      <p class="view-desc">Visão geral da sua situação financeira: saldo atual, saldo previsto e as últimas movimentações lançadas em qualquer aba do sistema.</p>
+    </div></header>
     <div class="kpi-grid" id="kpi-grid">
       <div class="empty">Carregando indicadores…</div>
     </div>
@@ -62,7 +64,9 @@
 
   <!-- MOVIMENTAÇÕES -->
   <section id="view-movimentacoes" class="view">
-    <header class="top"><div><h1>Movimentações</h1></div></header>
+    <header class="top"><div><h1>Movimentações</h1>
+      <p class="view-desc">Use esta aba para lançar valores <strong>à vista</strong> (dinheiro, Pix, débito) — entradas e saídas que não passam pelo cartão de crédito. Compras no cartão são lançadas na aba "Cartão de Crédito".</p>
+    </div></header>
     <div class="card">
       <h2>Nova movimentação</h2>
       <div class="row">
@@ -80,6 +84,10 @@
         <div class="field">
           <label>Valor (R$)</label>
           <input type="number" step="0.01" id="mov-valor" placeholder="0,00">
+        </div>
+        <div class="field">
+          <label>Quem comprou</label>
+          <input type="text" id="mov-responsavel" placeholder="Ex: Leonardo...">
         </div>
         <div class="field">
           <label>Situação</label>
@@ -104,15 +112,17 @@
       </div>
       <div class="kpi-grid" id="mov-kpi-grid" style="margin-top:16px;"></div>
       <table>
-        <thead><tr><th>Data</th><th>Lançamento</th><th>Tipo</th><th>Categoria</th><th>Valor</th><th>Situação</th></tr></thead>
-        <tbody id="movs-body"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
+        <thead><tr><th>Data</th><th>Lançamento</th><th>Tipo</th><th>Categoria</th><th>Quem comprou</th><th>Valor</th><th>Situação</th></tr></thead>
+        <tbody id="movs-body"><tr><td colspan="7" class="empty">Carregando…</td></tr></tbody>
       </table>
     </div>
   </section>
 
   <!-- LANÇAMENTOS -->
   <section id="view-lancamentos" class="view">
-    <header class="top"><div><h1>Lançamentos</h1></div></header>
+    <header class="top"><div><h1>Lançamentos</h1>
+      <p class="view-desc">Aqui você cadastra os "nomes" que vão aparecer nos campos de seleção das outras abas (ex: Salário, Aluguel, Mercado). Cada lançamento define se é Entrada ou Saída e a categoria — é o que organiza os relatórios. Cadastre um lançamento antes de registrar a movimentação em si.</p>
+    </div></header>
     <div class="card">
       <h2>Novo lançamento</h2>
       <div class="row">
@@ -148,7 +158,9 @@
 
   <!-- CARTÃO DE CRÉDITO -->
   <section id="view-cartao" class="view">
-    <header class="top"><div><h1>Cartão de Crédito</h1></div></header>
+    <header class="top"><div><h1>Cartão de Crédito</h1>
+      <p class="view-desc">Cadastre seus cartões e lance aqui as compras feitas <strong>no crédito</strong> (à vista no cartão ou parceladas). O primeiro indicador abaixo mostra o valor total que você precisa separar do seu salário este mês para pagar a fatura.</p>
+    </div></header>
     <div class="kpi-grid" id="cartao-kpi-grid"></div>
     <div class="card">
       <h2>Novo cartão</h2>
@@ -177,8 +189,8 @@
       <h2>Cartões cadastrados</h2>
       <p class="hint" style="margin-top:0;">Clique numa linha para editar o cartão.</p>
       <table>
-        <thead><tr><th>Cartão</th><th>Limite total</th><th>Utilizado</th><th>Disponível</th><th>Fecha</th><th>Vence</th><th>Ativo</th></tr></thead>
-        <tbody id="cartoes-body"><tr><td colspan="7" class="empty">Carregando…</td></tr></tbody>
+        <thead><tr><th>Cartão</th><th>Limite total</th><th>Utilizado</th><th>Disponível</th><th>Fatura deste mês</th><th>Fecha</th><th>Vence</th><th>Ativo</th></tr></thead>
+        <tbody id="cartoes-body"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
       </table>
     </div>
 
@@ -199,6 +211,10 @@
         <div class="field">
           <label>Descrição</label>
           <input type="text" id="compra-descricao" placeholder="Ex: Notebook, Geladeira...">
+        </div>
+        <div class="field">
+          <label>Quem comprou</label>
+          <input type="text" id="compra-responsavel" placeholder="Ex: Leonardo...">
         </div>
       </div>
       <div class="row" style="margin-top:10px;">
@@ -221,17 +237,28 @@
 
     <div class="card">
       <h2>Compras parceladas</h2>
-      <p class="hint" style="margin-top:0;">Clique numa linha para editar a descrição ou excluir a compra.</p>
+      <p class="hint" style="margin-top:0;">Clique numa linha para editar a descrição, quem comprou ou excluir a compra.</p>
       <table>
-        <thead><tr><th>Descrição</th><th>Cartão</th><th>Valor total</th><th>Parcelas</th><th>Valor/parcela</th><th>Data da compra</th></tr></thead>
-        <tbody id="compras-body"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
+        <thead><tr><th>Descrição</th><th>Cartão</th><th>Quem comprou</th><th>Valor total</th><th>Parcelas</th><th>Valor/parcela</th><th>Data da compra</th></tr></thead>
+        <tbody id="compras-body"><tr><td colspan="7" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>Gastos lançados no cartão (parcelas)</h2>
+      <p class="hint" style="margin-top:0;">Todas as parcelas já lançadas em Movimentações a partir de uma compra no cartão. Clique numa linha para <strong>corrigir valor, data, quem comprou ou situação</strong> em caso de erro de lançamento — toda alteração fica registrada no Histórico.</p>
+      <table>
+        <thead><tr><th>Data</th><th>Compra</th><th>Cartão</th><th>Quem comprou</th><th>Valor</th><th>Situação</th></tr></thead>
+        <tbody id="parcelas-cartao-body"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
       </table>
     </div>
   </section>
 
   <!-- CUSTOS RECORRENTES -->
   <section id="view-recorrentes" class="view">
-    <header class="top"><div><h1>Custos Recorrentes</h1></div></header>
+    <header class="top"><div><h1>Custos Recorrentes</h1>
+      <p class="view-desc">Cadastre aqui gastos que se repetem todo mês (aluguel, assinaturas, mensalidades). O sistema lança automaticamente a movimentação do mês em "Movimentações" quando alguém abre o app depois da virada do mês.</p>
+    </div></header>
     <div class="kpi-grid" id="rec-kpi-grid"></div>
     <div class="card">
       <h2>Novo custo recorrente</h2>
@@ -280,7 +307,9 @@
 
   <!-- HISTÓRICO -->
   <section id="view-historico" class="view">
-    <header class="top"><div><h1>Histórico de Alterações</h1></div></header>
+    <header class="top"><div><h1>Histórico de Alterações</h1>
+      <p class="view-desc">Registro permanente de tudo que foi editado ou excluído em qualquer aba do sistema — inclusive correções feitas em gastos do cartão de crédito. Nada aqui é apagado ou sobrescrito.</p>
+    </div></header>
     <div class="card">
       <p class="hint" style="margin-top:0;">Log permanente de todas as edições e exclusões — nada aqui é apagado ou sobrescrito.</p>
       <table>
@@ -292,7 +321,9 @@
 
   <!-- CONFIG -->
   <section id="view-config" class="view">
-    <header class="top"><div><h1>Configurações</h1></div></header>
+    <header class="top"><div><h1>Configurações</h1>
+      <p class="view-desc">Ajustes gerais usados nos cálculos do Dashboard: sua renda mensal e o saldo que você tem em caixa/conta hoje.</p>
+    </div></header>
     <div class="card">
       <h2>Configurações gerais</h2>
       <div class="row">
@@ -358,6 +389,10 @@
     <div class="field" style="margin-top:10px;">
       <label>Valor (R$)</label>
       <input type="number" step="0.01" id="edit-mov-valor">
+    </div>
+    <div class="field" style="margin-top:10px;">
+      <label>Quem comprou</label>
+      <input type="text" id="edit-mov-responsavel">
     </div>
     <div class="field" style="margin-top:10px;">
       <label>Situação</label>
@@ -490,7 +525,16 @@
       <label>Descrição</label>
       <input type="text" id="edit-compra-descricao">
     </div>
-    <p class="hint">Valor, parcelas, cartão e lançamento não podem ser editados aqui — envolveriam recalcular todas as parcelas já lançadas. Pra corrigir algo assim, exclua esta compra e lance de novo.</p>
+    <div class="field" style="margin-top:10px;">
+      <label>Quem comprou</label>
+      <input type="text" id="edit-compra-responsavel">
+    </div>
+    <div class="field" style="margin-top:10px;">
+      <label>Valor total (R$)</label>
+      <input type="number" step="0.01" id="edit-compra-valor">
+    </div>
+    <p class="hint" id="edit-compra-hint-valor">Em caso de erro no valor, corrija aqui: o ajuste é distribuído só entre as parcelas ainda não pagas (as já pagas não mudam, pois já viraram histórico).</p>
+    <p class="hint">Nº de parcelas, cartão e lançamento não podem ser editados aqui — envolveriam recalcular todas as parcelas já lançadas. Pra corrigir algo assim, exclua esta compra e lance de novo.</p>
     <div class="row" style="justify-content:space-between; margin-top:18px;">
       <button class="btn btn-danger" id="btn-excluir-compra">Excluir compra</button>
       <div class="row" style="width:auto;">

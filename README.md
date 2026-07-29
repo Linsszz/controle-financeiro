@@ -63,9 +63,9 @@ arrastar arquivos soltos.
 ## Estrutura de dados no Firestore
 
 - **lancamentos/{id}**: `nome`, `tipo` (`Entrada`/`Saida`), `categoria`, `createdAt`
-- **movimentacoes/{id}**: `lancamentoId`, `data` (`yyyy-MM-dd`), `valor`, `pago`, `origem`, `cartaoId`, `compraParceladaId`, `createdAt`
+- **movimentacoes/{id}**: `lancamentoId`, `data` (`yyyy-MM-dd`), `valor`, `pago`, `responsavel` (quem fez o gasto), `origem`, `cartaoId`, `compraParceladaId`, `createdAt`
 - **cartoes/{id}**: `nome`, `limiteTotal`, `diaFechamento`, `diaVencimento`, `ativo`, `createdAt`
-- **comprasParceladas/{id}**: `cartaoId`, `lancamentoId`, `descricao`, `valorTotal`, `numParcelas`, `dataCompra`, `dataRegistro`
+- **comprasParceladas/{id}**: `cartaoId`, `lancamentoId`, `descricao`, `responsavel` (quem fez a compra), `valorTotal`, `numParcelas`, `dataCompra`, `dataRegistro`
 - **recorrentes/{id}**: `lancamentoId`, `valor`, `dataInicio`, `diaVencimento`, `ativo`, `ultimoMesLancado`, `createdAt`
 - **historico/{id}**: `lancamentoId`, `nomeLancamento`, `campo`, `valorAnterior`, `valorNovo`, `tipoAlteracao`, `dataHora` — create-only, nunca editado/apagado
 - **config/geral**: documento único com `rendaMensal`, `saldoInicial`

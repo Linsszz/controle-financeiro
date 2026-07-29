@@ -151,6 +151,23 @@ function calcularLimiteUtilizado(cartaoId) {
   return total;
 }
 
+// Valor total das parcelas de cartão ainda não pagas cujo vencimento cai no
+// mês atual — é o que você precisa separar do salário pra pagar a fatura.
+// Sem cartaoId, soma todos os cartões; com cartaoId, soma só aquele cartão.
+function calcularFaturaMesAtual(cartaoId) {
+  const hoje = new Date();
+  const anoMesAtual = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`;
+  let total = 0;
+  STATE.movimentacoes.forEach((m) => {
+    if (!m.cartaoId) return;
+    if (cartaoId && String(m.cartaoId) !== String(cartaoId)) return;
+    if (m.pago === true) return;
+    if (String(m.data || "").slice(0, 7) !== anoMesAtual) return;
+    total += Number(m.valor) || 0;
+  });
+  return total;
+}
+
 function calcularDashboard() {
   const mapaLanc = mapaLancamentos();
   const rendaMensal = Number(STATE.config.rendaMensal) || 0;
@@ -225,6 +242,7 @@ function renderAll() {
   renderMovimentacoes();
   renderCartoes();
   renderComprasParceladas();
+  renderParcelasCartao();
   renderRecorrentes();
   renderHistorico();
   renderDashboard();
@@ -334,13 +352,13 @@ function renderMovimentacoes() {
 
   const body = document.getElementById("movs-body");
   if (!filtradas.length) {
-    body.innerHTML = `<tr><td colspan="6" class="empty">${STATE.filtroMovMes ? "Nenhuma movimentação neste mês." : "Nenhuma movimentação registrada ainda."}</td></tr>`;
+    body.innerHTML = `<tr><td colspan="7" class="empty">${STATE.filtroMovMes ? "Nenhuma movimentação neste mês." : "Nenhuma movimentação registrada ainda."}</td></tr>`;
   } else {
     body.innerHTML = filtradas.map((m) => (
       `<tr class="linha-clicavel" data-abrir-mov="${m.id}">` +
       `<td>${dataBR(m.data)}</td><td>${esc(m.nomeLancamento)}</td>` +
       `<td><span class="badge-tipo ${m.tipo}">${m.tipo === "Entrada" ? "Entrada" : (m.tipo ? "Saída" : "")}</span></td>` +
-      `<td>${esc(m.categoria)}</td><td class="num">${moeda(m.valor)}</td>` +
+      `<td>${esc(m.categoria)}</td><td>${esc(m.responsavel || "—")}</td><td class="num">${moeda(m.valor)}</td>` +
       `<td><span class="stamp ${m.pago ? "pago" : "pendente"}" data-alternar-pagamento="${m.id}" data-novo-pago="${!m.pago}">${m.pago ? "PAGO" : "PENDENTE"}</span></td></tr>`
     )).join("");
     document.querySelectorAll("[data-abrir-mov]").forEach((tr) => {
@@ -389,24 +407,27 @@ function renderCartaoKpis() {
     totalUtilizado += calcularLimiteUtilizado(c.id);
   });
   const totalDisponivel = totalLimite - totalUtilizado;
+  const faturaMesAtual = calcularFaturaMesAtual();
   document.getElementById("cartao-kpi-grid").innerHTML =
+    kpiCard("Total a pagar este mês (todos os cartões)", moeda(faturaMesAtual), faturaMesAtual === 0) +
     kpiCard("Limite total (todos os cartões)", moeda(totalLimite), true) +
-    kpiCard("Soma de parcelas ativas", moeda(totalUtilizado), totalUtilizado === 0) +
+    kpiCard("Soma de parcelas ativas (todos os meses)", moeda(totalUtilizado), totalUtilizado === 0) +
     kpiCard("Disponível (todos os cartões)", moeda(totalDisponivel), totalDisponivel >= 0);
 }
 
 function renderCartoes() {
   const body = document.getElementById("cartoes-body");
   if (!STATE.cartoes.length) {
-    body.innerHTML = '<tr><td colspan="7" class="empty">Nenhum cartão cadastrado ainda.</td></tr>';
+    body.innerHTML = '<tr><td colspan="8" class="empty">Nenhum cartão cadastrado ainda.</td></tr>';
   } else {
     body.innerHTML = STATE.cartoes.map((c) => {
       const utilizado = calcularLimiteUtilizado(c.id);
       const disponivel = (Number(c.limiteTotal) || 0) - utilizado;
+      const faturaMes = calcularFaturaMesAtual(c.id);
       const ativo = c.ativo !== false;
       return (
         `<tr class="linha-clicavel" data-abrir-cartao="${c.id}"><td>${esc(c.nome)}</td><td class="num">${moeda(c.limiteTotal)}</td>` +
-        `<td class="num">${moeda(utilizado)}</td><td class="num">${moeda(disponivel)}</td>` +
+        `<td class="num">${moeda(utilizado)}</td><td class="num">${moeda(disponivel)}</td><td class="num">${moeda(faturaMes)}</td>` +
         `<td>dia ${c.diaFechamento}</td><td>dia ${c.diaVencimento}</td>` +
         `<td><span class="stamp ${ativo ? "ativo" : "inativo"}" data-alternar-cartao-ativo="${c.id}" data-novo-ativo="${!ativo}">${ativo ? "ATIVO" : "INATIVO"}</span></td></tr>`
       );
@@ -496,13 +517,55 @@ function preencherSelectCartoes() {
   }).join("");
 }
 
+// Lista "achatada" de todo gasto já lançado no cartão (cada parcela de cada
+// compra), pra corrigir rapidinho um erro de valor/data/responsável sem
+// precisar ir até Movimentações e procurar. Reaproveita o mesmo modal de
+// edição de movimentação (com o mesmo registro em Histórico).
+function renderParcelasCartao() {
+  const body = document.getElementById("parcelas-cartao-body");
+  if (!body) return;
+  const mapaCartao = {};
+  STATE.cartoes.forEach((c) => (mapaCartao[c.id] = c));
+  const mapaCompra = {};
+  STATE.comprasParceladas.forEach((c) => (mapaCompra[c.id] = c));
+
+  const parcelas = STATE.movimentacoes.filter((m) => m.cartaoId);
+  if (!parcelas.length) {
+    body.innerHTML = '<tr><td colspan="6" class="empty">Nenhum gasto lançado no cartão ainda.</td></tr>';
+    return;
+  }
+  const ordenadas = [...parcelas].sort((a, b) => (a.data < b.data ? 1 : -1));
+  body.innerHTML = ordenadas.map((m) => {
+    const compra = mapaCompra[m.compraParceladaId];
+    const descricao = compra ? compra.descricao : "(compra excluída)";
+    const cartaoNome = (mapaCartao[m.cartaoId] || {}).nome || "(excluído)";
+    return (
+      `<tr class="linha-clicavel" data-abrir-mov="${m.id}"><td>${dataBR(m.data)}</td><td>${esc(descricao)}</td>` +
+      `<td>${esc(cartaoNome)}</td><td>${esc(m.responsavel || "—")}</td><td class="num">${moeda(m.valor)}</td>` +
+      `<td><span class="stamp ${m.pago ? "pago" : "pendente"}" data-alternar-pagamento="${m.id}" data-novo-pago="${!m.pago}">${m.pago ? "PAGO" : "PENDENTE"}</span></td></tr>`
+    );
+  }).join("");
+  body.querySelectorAll("[data-abrir-mov]").forEach((tr) => {
+    tr.addEventListener("click", (e) => {
+      if (e.target.closest("[data-alternar-pagamento]")) return;
+      abrirModalMovimentacao(tr.dataset.abrirMov);
+    });
+  });
+  body.querySelectorAll("[data-alternar-pagamento]").forEach((stamp) => {
+    stamp.addEventListener("click", (e) => {
+      e.stopPropagation();
+      alternarPagamento(stamp.dataset.alternarPagamento, stamp.dataset.novoPago === "true");
+    });
+  });
+}
+
 function renderComprasParceladas() {
   const mapaCartao = {};
   STATE.cartoes.forEach((c) => (mapaCartao[c.id] = c));
 
   const body = document.getElementById("compras-body");
   if (!STATE.comprasParceladas.length) {
-    body.innerHTML = '<tr><td colspan="6" class="empty">Nenhuma compra parcelada registrada ainda.</td></tr>';
+    body.innerHTML = '<tr><td colspan="7" class="empty">Nenhuma compra parcelada registrada ainda.</td></tr>';
     return;
   }
   const ordenadas = [...STATE.comprasParceladas].sort((a, b) => (a.dataCompra < b.dataCompra ? 1 : -1));
@@ -511,7 +574,7 @@ function renderComprasParceladas() {
     const valorTotal = Number(c.valorTotal) || 0;
     const valorParcela = arredondar2(valorTotal / numParcelas);
     return (
-      `<tr class="linha-clicavel" data-abrir-compra="${c.id}"><td>${esc(c.descricao)}</td><td>${esc((mapaCartao[c.cartaoId] || {}).nome || "(excluído)")}</td>` +
+      `<tr class="linha-clicavel" data-abrir-compra="${c.id}"><td>${esc(c.descricao)}</td><td>${esc(c.responsavel || "—")}</td><td>${esc((mapaCartao[c.cartaoId] || {}).nome || "(excluído)")}</td>` +
       `<td class="num">${moeda(valorTotal)}</td><td>${numParcelas}x</td>` +
       `<td class="num">${moeda(valorParcela)}</td><td>${dataBR(c.dataCompra)}</td></tr>`
     );
@@ -526,6 +589,14 @@ function abrirModalEditarCompra(id) {
   if (!c) return mostrarToast("Compra não encontrada.", true);
   document.getElementById("edit-compra-id").value = c.id;
   document.getElementById("edit-compra-descricao").value = c.descricao;
+  document.getElementById("edit-compra-responsavel").value = c.responsavel || "";
+  document.getElementById("edit-compra-valor").value = c.valorTotal;
+  const numParcelas = Number(c.numParcelas) || 1;
+  const naoPagas = STATE.movimentacoes.filter((m) => m.compraParceladaId === id && m.pago !== true);
+  document.getElementById("edit-compra-hint-valor").textContent = naoPagas.length
+    ? `Em caso de erro no valor, corrija aqui: o ajuste é distribuído entre as ${naoPagas.length} parcela(s) de ${numParcelas} ainda não pagas (as já pagas não mudam, pois já viraram histórico).`
+    : "Todas as parcelas dessa compra já foram pagas — o valor total não pode mais ser ajustado aqui.";
+  document.getElementById("edit-compra-valor").disabled = !naoPagas.length;
   document.getElementById("modal-editar-compra").classList.add("active");
 }
 function fecharModalEditarCompra() {
@@ -539,10 +610,82 @@ document.getElementById("modal-editar-compra").addEventListener("click", (e) => 
 document.getElementById("btn-salvar-edicao-compra").addEventListener("click", async () => {
   const id = document.getElementById("edit-compra-id").value;
   const descricao = document.getElementById("edit-compra-descricao").value.trim();
+  const responsavel = document.getElementById("edit-compra-responsavel").value.trim();
+  const valorTotal = Number(document.getElementById("edit-compra-valor").value);
   if (!descricao) return mostrarToast("A descrição não pode ficar em branco.", true);
+  if (!valorTotal || valorTotal <= 0) return mostrarToast("Informe um valor total válido.", true);
+
+  const atual = STATE.comprasParceladas.find((x) => x.id === id);
+  if (!atual) return mostrarToast("Compra não encontrada.", true);
+
+  const parcelas = STATE.movimentacoes.filter((m) => m.compraParceladaId === id);
+  const pagas = parcelas.filter((m) => m.pago === true);
+  const naoPagas = [...parcelas.filter((m) => m.pago !== true)].sort((a, b) => (a.data < b.data ? -1 : 1));
+  const somaPagas = pagas.reduce((s, m) => s + (Number(m.valor) || 0), 0);
+
+  const valorTotalAtual = arredondar2(Number(atual.valorTotal) || 0);
+  const valorMudou = valorTotalAtual !== arredondar2(valorTotal);
+
+  if (valorMudou) {
+    if (!naoPagas.length) {
+      return mostrarToast("Não dá pra ajustar o valor: todas as parcelas dessa compra já foram pagas.", true);
+    }
+    if (arredondar2(valorTotal - somaPagas) < 0) {
+      return mostrarToast(`Valor total não pode ser menor que o já pago (${moeda(somaPagas)}).`, true);
+    }
+  }
+
+  const alteracoes = [];
+  if (atual.descricao !== descricao) alteracoes.push({ campo: "Descrição", antes: atual.descricao, depois: descricao });
+  if ((atual.responsavel || "") !== responsavel) alteracoes.push({ campo: "Responsável", antes: atual.responsavel || "—", depois: responsavel || "—" });
+  if (valorMudou) alteracoes.push({ campo: "Valor total", antes: moeda(valorTotalAtual), depois: moeda(valorTotal) });
+
+  if (!alteracoes.length) {
+    mostrarToast("Nenhuma alteração encontrada — os dados já eram esses.");
+    fecharModalEditarCompra();
+    return;
+  }
+
   try {
-    await updateDoc(doc(db, "comprasParceladas", id), { descricao });
-    mostrarToast("Compra atualizada!");
+    const batch = writeBatch(db);
+
+    const dadosCompra = { descricao, responsavel };
+    if (valorMudou) dadosCompra.valorTotal = valorTotal;
+    batch.update(doc(db, "comprasParceladas", id), dadosCompra);
+
+    // O ajuste de valor recai só sobre as parcelas ainda não pagas — as já
+    // pagas viraram histórico e não são mexidas. Responsável é só um dado
+    // informativo, então esse sim é atualizado em todas as parcelas.
+    const novosValores = {};
+    if (valorMudou) {
+      const restante = arredondar2(valorTotal - somaPagas);
+      const valorPorParcela = arredondar2(restante / naoPagas.length);
+      naoPagas.forEach((m, i) => {
+        novosValores[m.id] = i === naoPagas.length - 1
+          ? arredondar2(restante - valorPorParcela * (naoPagas.length - 1))
+          : valorPorParcela;
+      });
+    }
+    parcelas.forEach((m) => {
+      const dadosMov = {};
+      if ((m.responsavel || "") !== responsavel) dadosMov.responsavel = responsavel;
+      if (novosValores[m.id] !== undefined) dadosMov.valor = novosValores[m.id];
+      if (Object.keys(dadosMov).length) batch.update(doc(db, "movimentacoes", m.id), dadosMov);
+    });
+
+    const mapaLanc = mapaLancamentos();
+    const nomeLanc = (mapaLanc[atual.lancamentoId] || {}).nome || "(excluído)";
+    alteracoes.forEach((a) => {
+      const histRef = doc(collection(db, "historico"));
+      batch.set(histRef, {
+        lancamentoId: atual.lancamentoId, nomeLancamento: `${nomeLanc} (compra: ${descricao})`, campo: a.campo,
+        valorAnterior: String(a.antes), valorNovo: String(a.depois),
+        tipoAlteracao: "Edição de compra no cartão", dataHora: serverTimestamp()
+      });
+    });
+
+    await batch.commit();
+    mostrarToast(`Compra atualizada (${alteracoes.length} campo(s) alterado(s)).`);
     fecharModalEditarCompra();
   } catch (err) {
     mostrarToast("Não foi possível salvar: " + err.message, true);
@@ -764,14 +907,16 @@ document.getElementById("btn-add-movimentacao").addEventListener("click", async 
   const data = document.getElementById("mov-data").value;
   const valor = Number(document.getElementById("mov-valor").value);
   const pago = document.getElementById("mov-pago").value === "true";
+  const responsavel = document.getElementById("mov-responsavel").value.trim();
   if (!lancamentoId) return mostrarToast("Cadastre um lançamento primeiro.", true);
   if (!data || !valor) return mostrarToast("Preencha data e valor.", true);
   try {
     await addDoc(collection(db, "movimentacoes"), {
-      lancamentoId, data, valor, pago, origem: "Manual", cartaoId: null, compraParceladaId: null, createdAt: serverTimestamp()
+      lancamentoId, data, valor, pago, responsavel, origem: "Manual", cartaoId: null, compraParceladaId: null, createdAt: serverTimestamp()
     });
     mostrarToast("Movimentação adicionada!");
     document.getElementById("mov-valor").value = "";
+    document.getElementById("mov-responsavel").value = "";
   } catch (err) {
     mostrarToast("Não foi possível salvar: " + err.message, true);
   }
@@ -794,6 +939,7 @@ function abrirModalMovimentacao(id) {
   document.getElementById("edit-mov-data").value = mov.data;
   document.getElementById("edit-mov-valor").value = mov.valor;
   document.getElementById("edit-mov-pago").value = mov.pago ? "true" : "false";
+  document.getElementById("edit-mov-responsavel").value = mov.responsavel || "";
   document.getElementById("modal-editar-mov").classList.add("active");
 }
 function fecharModalMovimentacao() {
@@ -810,6 +956,7 @@ document.getElementById("btn-salvar-edicao-mov").addEventListener("click", async
   const data = document.getElementById("edit-mov-data").value;
   const valor = Number(document.getElementById("edit-mov-valor").value);
   const pago = document.getElementById("edit-mov-pago").value === "true";
+  const responsavel = document.getElementById("edit-mov-responsavel").value.trim();
 
   if (!lancamentoId) return mostrarToast("Selecione um lançamento.", true);
   if (!data || !valor) return mostrarToast("Preencha data e valor.", true);
@@ -828,6 +975,7 @@ document.getElementById("btn-salvar-edicao-mov").addEventListener("click", async
   if (atual.data !== data) alteracoes.push({ campo: "Data", antes: dataBR(atual.data), depois: dataBR(data) });
   if (Number(atual.valor) !== valor) alteracoes.push({ campo: "Valor", antes: moeda(atual.valor), depois: moeda(valor) });
   if (situacaoAntes !== situacaoDepois) alteracoes.push({ campo: "Situação", antes: situacaoAntes, depois: situacaoDepois });
+  if ((atual.responsavel || "") !== responsavel) alteracoes.push({ campo: "Responsável", antes: atual.responsavel || "—", depois: responsavel || "—" });
 
   if (!alteracoes.length) {
     mostrarToast("Nenhuma alteração encontrada — os dados já eram esses.");
@@ -836,7 +984,7 @@ document.getElementById("btn-salvar-edicao-mov").addEventListener("click", async
   }
 
   try {
-    await updateDoc(doc(db, "movimentacoes", id), { lancamentoId, data, valor, pago });
+    await updateDoc(doc(db, "movimentacoes", id), { lancamentoId, data, valor, pago, responsavel });
     for (const a of alteracoes) {
       await addDoc(collection(db, "historico"), {
         lancamentoId, nomeLancamento: nomeDepois, campo: a.campo,
@@ -900,6 +1048,7 @@ document.getElementById("btn-add-compra").addEventListener("click", async () => 
   const cartaoId = document.getElementById("compra-cartao").value;
   const lancamentoId = document.getElementById("compra-lancamento").value;
   const descricao = document.getElementById("compra-descricao").value.trim();
+  const responsavel = document.getElementById("compra-responsavel").value.trim();
   const valorTotal = Number(document.getElementById("compra-valor").value);
   const numParcelas = Number(document.getElementById("compra-parcelas").value);
   const dataCompra = document.getElementById("compra-data").value;
@@ -921,7 +1070,7 @@ document.getElementById("btn-add-compra").addEventListener("click", async () => 
   try {
     const batch = writeBatch(db);
     const compraRef = doc(collection(db, "comprasParceladas"));
-    batch.set(compraRef, { cartaoId, lancamentoId, descricao, valorTotal, numParcelas, dataCompra, dataRegistro: serverTimestamp() });
+    batch.set(compraRef, { cartaoId, lancamentoId, descricao, responsavel, valorTotal, numParcelas, dataCompra, dataRegistro: serverTimestamp() });
 
     const valorParcela = arredondar2(valorTotal / numParcelas);
     const ciclo = calcularCicloInicial(dataCompra, Number(cartao.diaFechamento));
@@ -934,7 +1083,7 @@ document.getElementById("btn-add-compra").addEventListener("click", async () => 
         : valorParcela;
       const movRef = doc(collection(db, "movimentacoes"));
       batch.set(movRef, {
-        lancamentoId, data: vencimento, valor: valorDaParcela, pago: false,
+        lancamentoId, data: vencimento, valor: valorDaParcela, pago: false, responsavel,
         origem: `Cartao ${i + 1}/${numParcelas}`, cartaoId, compraParceladaId: compraRef.id, createdAt: serverTimestamp()
       });
     }
@@ -942,6 +1091,7 @@ document.getElementById("btn-add-compra").addEventListener("click", async () => 
     await batch.commit();
     mostrarToast(`${numParcelas} parcela(s) de ${moeda(valorParcela)} lançada(s) em Movimentações.`);
     document.getElementById("compra-descricao").value = "";
+    document.getElementById("compra-responsavel").value = "";
     document.getElementById("compra-valor").value = "";
     document.getElementById("compra-parcelas").value = "1";
   } catch (err) {
@@ -1045,12 +1195,14 @@ function iniciarListeners() {
     STATE.cartoes = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     renderCartoes();
     renderComprasParceladas();
+    renderParcelasCartao();
     renderDashboard();
   }, (err) => mostrarToast("Erro ao carregar cartões: " + err.message, true));
 
   onSnapshot(collection(db, "comprasParceladas"), (snap) => {
     STATE.comprasParceladas = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     renderComprasParceladas();
+    renderParcelasCartao();
   }, (err) => mostrarToast("Erro ao carregar compras parceladas: " + err.message, true));
 
   onSnapshot(collection(db, "recorrentes"), (snap) => {
