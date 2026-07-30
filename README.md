@@ -70,6 +70,20 @@ arrastar arquivos soltos.
 - **historico/{id}**: `lancamentoId`, `nomeLancamento`, `campo`, `valorAnterior`, `valorNovo`, `tipoAlteracao`, `dataHora` — create-only, nunca editado/apagado
 - **config/geral**: documento único com `rendaMensal`, `saldoInicial`
 - **feriados/{id}**: `data` (`yyyy-MM-dd`), `descricao` — usados no cálculo de vencimento em dia útil
+- **planos/{id}**: `icone`, `nome`, `descricao`, `valorAlvo`, `valorAcumulado`, `aportePlanejadoMensal`, `createdAt` — metas de economia (aba "Planos")
+- **planos/{id}/aportes/{id}**: `tipo` (`Aporte`/`Retirada`), `valor`, `data`, `timestamp` — log permanente de cada aporte/retirada de um plano, create-only
+- **pessoas/{id}**: `nome`, `createdAt` — alimenta os selects de "Quem comprou" em Movimentações e Cartão de Crédito
+
+### Sobre o campo "Quem comprou"
+
+É um `<select>` alimentado pela coleção `pessoas`, com um botão "+" pra
+cadastrar gente nova sem sair da tela. Pra manter a migração simples, ele
+guarda o **nome** da pessoa (não um ID) em `responsavel` — então renomear
+uma pessoa cadastrada não atualiza registros antigos automaticamente (é
+diferente de como `lancamentoId` funciona). Registros antigos que já
+tinham um texto livre em "Quem comprou" (de antes dessa mudança) continuam
+aparecendo normalmente nos selects, marcados como "(não cadastrado)" até
+você cadastrar a pessoa de verdade ou trocar por uma existente.
 
 ## O que melhorou em relação ao sistema antigo
 
@@ -86,6 +100,23 @@ arrastar arquivos soltos.
   lançado assim que qualquer pessoa abrir o sistema depois da virada do
   mês. O botão manual "Lançar recorrentes pendentes deste mês" continua lá
   também.
+- **Editar uma compra parcelada sincroniza tudo em Movimentações**: mudar
+  cartão, valor total, nº de parcelas ou data da compra recalcula
+  automaticamente as parcelas ainda não pagas (as já pagas nunca são
+  tocadas — viraram histórico). A regra do fechamento é respeitada: uma
+  compra feita a partir do dia de fechamento do cartão entra na fatura do
+  mês seguinte.
+- **Recalcular parcelas manualmente**: no modal de editar compra, o botão
+  "🔄 Recalcular parcelas com os dados atuais" força o recálculo das
+  parcelas ainda não pagas mesmo sem mudar nenhum campo — útil pra corrigir
+  compras antigas que foram lançadas antes de algum ajuste na regra de
+  fechamento do sistema.
+- **Planos**: aba nova de metas de economia, com barra de progresso,
+  previsão de quando você consegue chegar lá no ritmo atual, e um
+  simulador — diga quanto quer guardar por mês (mostra a previsão de
+  tempo) ou em quantos meses quer conseguir (mostra quanto precisa guardar
+  por mês). Cada aporte/retirada fica registrado num log permanente por
+  plano.
 
 ## Trocar a senha da planilha administrativa
 
@@ -110,7 +141,9 @@ arrastar arquivos soltos.
   incomodar (por ex. se mais pessoas passarem a usar o sistema), dá pra
   reconsiderar introduzir Firebase Auth.
 - **Feriados**: o sistema antigo já vinha com a lista de feriados nacionais
-  de 2026 pré-cadastrada. Popule a coleção `feriados` (pela `planilha.html`,
-  aba "Feriados") com as datas que faltarem — sem isso, o cálculo de
-  vencimento ainda funciona, só não pula feriados (continua pulando fins de
-  semana normalmente).
+  de 2026 pré-cadastrada — trouxe essa mesma lista pronta em
+  [`feriados-2026-import.csv`](feriados-2026-import.csv). Pra usar: abra
+  `planilha.html`, vá na aba "Feriados", clique em **Importar CSV/XLSX** e
+  escolha esse arquivo (as linhas não têm `id`, então todas entram como
+  registros novos). Sem isso, o cálculo de vencimento ainda funciona, só não
+  pula feriados (continua pulando fins de semana normalmente).

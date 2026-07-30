@@ -83,5 +83,32 @@ service cloud.firestore {
       allow create, update: if request.resource.data.data is string;
       allow delete: if true;
     }
+
+    match /pessoas/{id} {
+      allow read: if true;
+      allow create, update: if request.resource.data.nome is string
+                    && request.resource.data.nome.size() > 0
+                    && request.resource.data.nome.size() < 100;
+      allow delete: if true;
+    }
+
+    match /planos/{id} {
+      allow read: if true;
+      allow create, update: if request.resource.data.nome is string
+                    && request.resource.data.nome.size() > 0
+                    && request.resource.data.valorAlvo is number
+                    && request.resource.data.valorAlvo > 0;
+      allow delete: if true;
+
+      // Log de aportes/retiradas — create-only, nunca update/delete, pra
+      // preservar a integridade do histórico do plano.
+      match /aportes/{aporteId} {
+        allow read: if true;
+        allow create: if request.resource.data.valor is number
+                      && request.resource.data.valor > 0
+                      && (request.resource.data.tipo == 'Aporte' || request.resource.data.tipo == 'Retirada');
+        allow update, delete: if false;
+      }
+    }
   }
 }

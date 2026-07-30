@@ -5,7 +5,7 @@
 
 import { db } from "./firebase-init.js";
 import {
-  collection, addDoc, updateDoc, deleteDoc, setDoc, doc,
+  collection, addDoc, updateDoc, deleteDoc, setDoc, doc, increment,
   onSnapshot, query, orderBy, serverTimestamp, writeBatch
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
 
@@ -17,18 +17,27 @@ const STATE = {
   recorrentes: [],
   historico: [],
   feriados: [],
+  planos: [],
+  pessoas: [],
   config: { rendaMensal: 0, saldoInicial: 0 },
-  filtroMovMes: ""
+  filtroMovMesDe: "",
+  filtroMovMesAte: "",
+  filtroMovPessoa: ""
 };
 
 let recorrentesCarregados = false;
 let jaVerificouRecorrentesPendentes = false;
+let lancamentosCarregados = false;
 
 // Quando o modal "Novo lançamento" é aberto a partir de um campo específico
 // (ex: o select de Movimentações), guardamos aqui pra, depois de salvar,
 // selecionar automaticamente o lançamento recém-criado nesse campo.
 let selectAlvoNovoLancamento = null;
 let pendingSelecaoLancamento = null; // { selectId, lancamentoId }
+
+// Mesma ideia, só que pro modal "Nova pessoa" (campo "Quem comprou").
+let selectAlvoNovaPessoa = null;
+let pendingSelecaoPessoa = null; // { selectId, nome }
 
 /* ══════════════ HELPERS ══════════════ */
 
@@ -275,7 +284,10 @@ function preencherSelectsLancamento() {
   const opcoes = STATE.lancamentos.map((l) => (
     `<option value="${l.id}">${esc(l.nome)} (${l.tipo === "Entrada" ? "Entrada" : "Saída"} — ${esc(l.categoria)})</option>`
   )).join("");
-  ["mov-lancamento", "rec-lancamento", "compra-lancamento", "edit-mov-lancamento", "edit-rec-lancamento"].forEach((id) => {
+  [
+    "mov-lancamento", "rec-lancamento", "compra-lancamento", "edit-mov-lancamento", "edit-rec-lancamento", "edit-compra-lancamento",
+    "qa-mov-lancamento", "qa-compra-lancamento", "qa-rec-lancamento"
+  ].forEach((id) => {
     const sel = document.getElementById(id);
     const valorAtual = sel.value;
     sel.innerHTML = opcoes;
@@ -326,10 +338,102 @@ document.getElementById("btn-salvar-novo-lancamento").addEventListener("click", 
   }
 });
 
-function filtrarPorMes(lista) {
-  if (!STATE.filtroMovMes) return lista;
-  return lista.filter((m) => String(m.data || "").slice(0, 7) === STATE.filtroMovMes);
+/* ══════════════ MODAL: NOVA PESSOA (reutilizado em "Quem comprou") ══════════════ */
+
+function preencherSelectsPessoa() {
+  const opcoes = '<option value="">— Não informado —</option>' +
+    STATE.pessoas.map((p) => `<option value="${esc(p.nome)}">${esc(p.nome)}</option>`).join("");
+  ["mov-responsavel", "compra-responsavel", "edit-mov-responsavel", "edit-compra-responsavel", "qa-mov-responsavel", "qa-compra-responsavel"].forEach((id) => {
+    const sel = document.getElementById(id);
+    const valorAtual = sel.value;
+    sel.innerHTML = opcoes;
+    if (pendingSelecaoPessoa && pendingSelecaoPessoa.selectId === id && STATE.pessoas.some((p) => p.nome === pendingSelecaoPessoa.nome)) {
+      sel.value = pendingSelecaoPessoa.nome;
+      pendingSelecaoPessoa = null;
+    } else if (valorAtual) {
+      sel.value = valorAtual;
+    }
+  });
 }
+
+// Registros antigos podem ter "responsavel" como texto livre que não bate
+// com nenhuma pessoa cadastrada — garante que o valor apareça mesmo assim
+// (marcado como "não cadastrado"), em vez de sumir silenciosamente do select.
+function garantirOpcaoPessoa(selectId, nome) {
+  if (!nome) return;
+  const sel = document.getElementById(selectId);
+  if (![...sel.options].some((o) => o.value === nome)) {
+    sel.insertAdjacentHTML("beforeend", `<option value="${esc(nome)}">${esc(nome)} (não cadastrado)</option>`);
+  }
+  sel.value = nome;
+}
+
+function abrirModalNovaPessoa(selectAlvoId) {
+  selectAlvoNovaPessoa = selectAlvoId || null;
+  document.getElementById("nova-pessoa-nome").value = "";
+  document.getElementById("modal-nova-pessoa").classList.add("active");
+  document.getElementById("nova-pessoa-nome").focus();
+}
+function fecharModalNovaPessoa() {
+  document.getElementById("modal-nova-pessoa").classList.remove("active");
+  selectAlvoNovaPessoa = null;
+}
+document.querySelectorAll("[data-abrir-nova-pessoa]").forEach((btn) => {
+  btn.addEventListener("click", () => abrirModalNovaPessoa(btn.dataset.abrirNovaPessoa));
+});
+document.getElementById("btn-cancelar-nova-pessoa").addEventListener("click", fecharModalNovaPessoa);
+document.getElementById("modal-nova-pessoa").addEventListener("click", (e) => {
+  if (e.target.id === "modal-nova-pessoa") fecharModalNovaPessoa();
+});
+document.getElementById("btn-salvar-nova-pessoa").addEventListener("click", async () => {
+  const nome = document.getElementById("nova-pessoa-nome").value.trim();
+  if (!nome) return mostrarToast("Digite um nome.", true);
+  if (STATE.pessoas.some((p) => p.nome.toLowerCase() === nome.toLowerCase())) {
+    return mostrarToast("Já existe uma pessoa com esse nome.", true);
+  }
+  try {
+    await addDoc(collection(db, "pessoas"), { nome, createdAt: serverTimestamp() });
+    if (selectAlvoNovaPessoa) pendingSelecaoPessoa = { selectId: selectAlvoNovaPessoa, nome };
+    mostrarToast("Pessoa cadastrada!");
+    fecharModalNovaPessoa();
+  } catch (err) {
+    mostrarToast("Não foi possível salvar: " + err.message, true);
+  }
+});
+
+function filtrarPorMes(lista) {
+  if (!STATE.filtroMovMesDe && !STATE.filtroMovMesAte) return lista;
+  return lista.filter((m) => {
+    const anoMes = String(m.data || "").slice(0, 7);
+    if (STATE.filtroMovMesDe && anoMes < STATE.filtroMovMesDe) return false;
+    if (STATE.filtroMovMesAte && anoMes > STATE.filtroMovMesAte) return false;
+    return true;
+  });
+}
+
+function filtrarPorPessoa(lista) {
+  if (!STATE.filtroMovPessoa) return lista;
+  return lista.filter((m) => (m.responsavel || "") === STATE.filtroMovPessoa);
+}
+
+// Opções do filtro vêm da união de "pessoas" cadastradas + qualquer nome
+// já usado em movimentações (cobre registros antigos com texto livre) —
+// assim ninguém some do filtro só porque não foi formalmente cadastrado.
+function preencherFiltroPessoa(enriquecidas) {
+  const nomes = new Set();
+  STATE.pessoas.forEach((p) => nomes.add(p.nome));
+  enriquecidas.forEach((m) => { if (m.responsavel) nomes.add(m.responsavel); });
+  const sel = document.getElementById("mov-filtro-pessoa");
+  const valorAtual = sel.value;
+  sel.innerHTML = '<option value="">Todas as pessoas</option>' +
+    [...nomes].sort((a, b) => a.localeCompare(b, "pt-BR")).map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join("");
+  if (valorAtual) sel.value = valorAtual;
+}
+
+document.getElementById("mov-filtro-pessoa").addEventListener("change", (e) => {
+  STATE.filtroMovPessoa = e.target.value;
+  renderMovimentacoes();
+});
 
 function renderMovKpis(filtradas) {
   let totalPago = 0, totalNaoPago = 0, qtdPago = 0, qtdNaoPago = 0;
@@ -344,20 +448,28 @@ function renderMovKpis(filtradas) {
 
 function renderMovimentacoes() {
   const mapaLanc = mapaLancamentos();
+  const mapaCompra = {};
+  STATE.comprasParceladas.forEach((c) => (mapaCompra[c.id] = c));
   const enriquecidas = STATE.movimentacoes.map((m) => {
     const l = mapaLanc[m.lancamentoId] || {};
-    return { ...m, nomeLancamento: l.nome || "(excluído)", tipo: l.tipo || "", categoria: l.categoria || "" };
+    const compra = m.compraParceladaId ? mapaCompra[m.compraParceladaId] : null;
+    return {
+      ...m, nomeLancamento: l.nome || "(excluído)", tipo: l.tipo || "", categoria: l.categoria || "",
+      descricaoCompra: compra ? compra.descricao : ""
+    };
   });
 
-  const filtradas = filtrarPorMes(enriquecidas);
+  preencherFiltroPessoa(enriquecidas);
+  const filtradas = filtrarPorPessoa(filtrarPorMes(enriquecidas));
 
   const body = document.getElementById("movs-body");
   if (!filtradas.length) {
-    body.innerHTML = `<tr><td colspan="7" class="empty">${STATE.filtroMovMes ? "Nenhuma movimentação neste mês." : "Nenhuma movimentação registrada ainda."}</td></tr>`;
+    const temFiltro = STATE.filtroMovMesDe || STATE.filtroMovMesAte || STATE.filtroMovPessoa;
+    body.innerHTML = `<tr><td colspan="7" class="empty">${temFiltro ? "Nenhuma movimentação com esse filtro." : "Nenhuma movimentação registrada ainda."}</td></tr>`;
   } else {
     body.innerHTML = filtradas.map((m) => (
       `<tr class="linha-clicavel" data-abrir-mov="${m.id}">` +
-      `<td>${dataBR(m.data)}</td><td>${esc(m.nomeLancamento)}</td>` +
+      `<td>${dataBR(m.data)}</td><td>${esc(m.nomeLancamento)}${m.descricaoCompra ? `<span class="sublabel">${esc(m.descricaoCompra)}</span>` : ""}</td>` +
       `<td><span class="badge-tipo ${m.tipo}">${m.tipo === "Entrada" ? "Entrada" : (m.tipo ? "Saída" : "")}</span></td>` +
       `<td>${esc(m.categoria)}</td><td>${esc(m.responsavel || "")}</td><td class="num">${moeda(m.valor)}</td>` +
       `<td><span class="stamp ${m.pago ? "pago" : "pendente"}" data-alternar-pagamento="${m.id}" data-novo-pago="${!m.pago}">${m.pago ? "PAGO" : "PENDENTE"}</span></td></tr>`
@@ -377,13 +489,19 @@ function renderMovimentacoes() {
   renderDashMovs(enriquecidas.slice(0, 8));
 }
 
-document.getElementById("mov-filtro-mes").addEventListener("change", (e) => {
-  STATE.filtroMovMes = e.target.value;
+document.getElementById("mov-filtro-mes-de").addEventListener("change", (e) => {
+  STATE.filtroMovMesDe = e.target.value;
+  renderMovimentacoes();
+});
+document.getElementById("mov-filtro-mes-ate").addEventListener("change", (e) => {
+  STATE.filtroMovMesAte = e.target.value;
   renderMovimentacoes();
 });
 document.getElementById("btn-mov-todos-meses").addEventListener("click", () => {
-  STATE.filtroMovMes = "";
-  document.getElementById("mov-filtro-mes").value = "";
+  STATE.filtroMovMesDe = "";
+  STATE.filtroMovMesAte = "";
+  document.getElementById("mov-filtro-mes-de").value = "";
+  document.getElementById("mov-filtro-mes-ate").value = "";
   renderMovimentacoes();
 });
 
@@ -394,7 +512,7 @@ function renderDashMovs(movs) {
     return;
   }
   body.innerHTML = movs.map((m) => (
-    `<tr><td>${dataBR(m.data)}</td><td>${esc(m.nomeLancamento)}</td>` +
+    `<tr><td>${dataBR(m.data)}</td><td>${esc(m.nomeLancamento)}${m.descricaoCompra ? `<span class="sublabel">${esc(m.descricaoCompra)}</span>` : ""}</td>` +
     `<td><span class="badge-tipo ${m.tipo}">${m.tipo === "Entrada" ? "Entrada" : (m.tipo ? "Saída" : "")}</span></td>` +
     `<td class="num">${moeda(m.valor)}</td>` +
     `<td><span class="stamp ${m.pago ? "pago" : "pendente"}">${m.pago ? "PAGO" : "PENDENTE"}</span></td></tr>`
@@ -507,15 +625,20 @@ document.getElementById("btn-excluir-cartao").addEventListener("click", async ()
 });
 
 function preencherSelectCartoes() {
-  const sel = document.getElementById("compra-cartao");
-  if (!STATE.cartoes.length) {
-    sel.innerHTML = '<option value="">Cadastre um cartão primeiro</option>';
-    return;
-  }
-  sel.innerHTML = STATE.cartoes.map((c) => {
+  const opcoes = STATE.cartoes.map((c) => {
     const disponivel = (Number(c.limiteTotal) || 0) - calcularLimiteUtilizado(c.id);
     return `<option value="${c.id}">${esc(c.nome)} (disponível ${moeda(disponivel)})</option>`;
   }).join("");
+  ["compra-cartao", "edit-compra-cartao", "qa-compra-cartao"].forEach((id) => {
+    const sel = document.getElementById(id);
+    if (!STATE.cartoes.length) {
+      sel.innerHTML = '<option value="">Cadastre um cartão primeiro</option>';
+      return;
+    }
+    const valorAtual = sel.value;
+    sel.innerHTML = opcoes;
+    if (valorAtual) sel.value = valorAtual;
+  });
 }
 
 // Lista "achatada" de todo gasto já lançado no cartão (cada parcela de cada
@@ -569,7 +692,12 @@ function renderComprasParceladas() {
     body.innerHTML = '<tr><td colspan="7" class="empty">Nenhuma compra parcelada registrada ainda.</td></tr>';
     return;
   }
-  const ordenadas = [...STATE.comprasParceladas].sort((a, b) => (a.dataCompra < b.dataCompra ? 1 : -1));
+  // Data da compra manda (mais recente primeiro); no empate (mesma data),
+  // desempata por ordem de cadastro (mais recém-lançada primeiro).
+  const ordenadas = [...STATE.comprasParceladas].sort((a, b) => {
+    if (a.dataCompra !== b.dataCompra) return a.dataCompra < b.dataCompra ? 1 : -1;
+    return tsParaMillis(b.dataRegistro) - tsParaMillis(a.dataRegistro);
+  });
   body.innerHTML = ordenadas.map((c) => {
     const numParcelas = Number(c.numParcelas) || 1;
     const valorTotal = Number(c.valorTotal) || 0;
@@ -588,16 +716,28 @@ function renderComprasParceladas() {
 function abrirModalEditarCompra(id) {
   const c = STATE.comprasParceladas.find((x) => x.id === id);
   if (!c) return mostrarToast("Compra não encontrada.", true);
+  preencherSelectsLancamento();
+  preencherSelectCartoes();
+  preencherSelectsPessoa();
   document.getElementById("edit-compra-id").value = c.id;
+  document.getElementById("edit-compra-cartao").value = c.cartaoId;
+  document.getElementById("edit-compra-lancamento").value = c.lancamentoId;
   document.getElementById("edit-compra-descricao").value = c.descricao;
-  document.getElementById("edit-compra-responsavel").value = c.responsavel || "";
+  garantirOpcaoPessoa("edit-compra-responsavel", c.responsavel || "");
   document.getElementById("edit-compra-valor").value = c.valorTotal;
+  document.getElementById("edit-compra-parcelas").value = c.numParcelas;
+  document.getElementById("edit-compra-data").value = c.dataCompra;
+
   const numParcelas = Number(c.numParcelas) || 1;
   const naoPagas = STATE.movimentacoes.filter((m) => m.compraParceladaId === id && m.pago !== true);
-  document.getElementById("edit-compra-hint-valor").textContent = naoPagas.length
-    ? `Em caso de erro no valor, corrija aqui: o ajuste é distribuído entre as ${naoPagas.length} parcela(s) de ${numParcelas} ainda não pagas (as já pagas não mudam, pois já viraram histórico).`
-    : "Todas as parcelas dessa compra já foram pagas — o valor total não pode mais ser ajustado aqui.";
-  document.getElementById("edit-compra-valor").disabled = !naoPagas.length;
+  const paidCount = numParcelas - naoPagas.length;
+  const travar = !naoPagas.length;
+  ["edit-compra-cartao", "edit-compra-valor", "edit-compra-parcelas", "edit-compra-data"].forEach((elId) => {
+    document.getElementById(elId).disabled = travar;
+  });
+  document.getElementById("edit-compra-info").textContent = travar
+    ? "Todas as parcelas dessa compra já foram pagas — só descrição, lançamento e responsável ainda podem ser alterados."
+    : `${paidCount} de ${numParcelas} parcela(s) já paga(s). Mudar cartão, valor, nº de parcelas ou data recalcula automaticamente só as ${naoPagas.length} parcela(s) ainda não paga(s) — as pagas não são tocadas.`;
   document.getElementById("modal-editar-compra").classList.add("active");
 }
 function fecharModalEditarCompra() {
@@ -608,89 +748,171 @@ document.getElementById("modal-editar-compra").addEventListener("click", (e) => 
   if (e.target.id === "modal-editar-compra") fecharModalEditarCompra();
 });
 
-document.getElementById("btn-salvar-edicao-compra").addEventListener("click", async () => {
+async function salvarEdicaoCompra(forcarRecalculo) {
   const id = document.getElementById("edit-compra-id").value;
+  const cartaoId = document.getElementById("edit-compra-cartao").value;
+  const lancamentoId = document.getElementById("edit-compra-lancamento").value;
   const descricao = document.getElementById("edit-compra-descricao").value.trim();
   const responsavel = document.getElementById("edit-compra-responsavel").value.trim();
   const valorTotal = Number(document.getElementById("edit-compra-valor").value);
+  const numParcelas = Number(document.getElementById("edit-compra-parcelas").value);
+  const dataCompra = document.getElementById("edit-compra-data").value;
+
   if (!descricao) return mostrarToast("A descrição não pode ficar em branco.", true);
+  if (!lancamentoId) return mostrarToast("Selecione um lançamento.", true);
+  if (!cartaoId) return mostrarToast("Selecione um cartão.", true);
   if (!valorTotal || valorTotal <= 0) return mostrarToast("Informe um valor total válido.", true);
+  if (!numParcelas || numParcelas < 1 || numParcelas > 60) return mostrarToast("Número de parcelas inválido (1 a 60).", true);
+  if (!dataCompra) return mostrarToast("Informe a data da compra.", true);
 
   const atual = STATE.comprasParceladas.find((x) => x.id === id);
   if (!atual) return mostrarToast("Compra não encontrada.", true);
+  const cartao = STATE.cartoes.find((c) => c.id === cartaoId);
+  if (!cartao) return mostrarToast("Cartão não encontrado.", true);
 
   const parcelas = STATE.movimentacoes.filter((m) => m.compraParceladaId === id);
-  const pagas = parcelas.filter((m) => m.pago === true);
+  const pagas = [...parcelas.filter((m) => m.pago === true)].sort((a, b) => (a.data < b.data ? -1 : 1));
   const naoPagas = [...parcelas.filter((m) => m.pago !== true)].sort((a, b) => (a.data < b.data ? -1 : 1));
-  const somaPagas = pagas.reduce((s, m) => s + (Number(m.valor) || 0), 0);
+  const paidCount = pagas.length;
+  const somaPagas = arredondar2(pagas.reduce((s, m) => s + (Number(m.valor) || 0), 0));
 
   const valorTotalAtual = arredondar2(Number(atual.valorTotal) || 0);
-  const valorMudou = valorTotalAtual !== arredondar2(valorTotal);
+  const numParcelasAtual = Number(atual.numParcelas) || 1;
+  const afetaCronograma =
+    forcarRecalculo ||
+    cartaoId !== atual.cartaoId ||
+    dataCompra !== atual.dataCompra ||
+    numParcelas !== numParcelasAtual ||
+    arredondar2(valorTotal) !== valorTotalAtual;
 
-  if (valorMudou) {
+  if (afetaCronograma) {
     if (!naoPagas.length) {
-      return mostrarToast("Não dá pra ajustar o valor: todas as parcelas dessa compra já foram pagas.", true);
+      return mostrarToast(
+        forcarRecalculo
+          ? "Todas as parcelas dessa compra já foram pagas — não há mais nada pra recalcular."
+          : "Todas as parcelas já foram pagas — cartão, valor, parcelas e data não podem mais ser ajustados.",
+        true
+      );
+    }
+    if (numParcelas < paidCount) {
+      return mostrarToast(`Já foram pagas ${paidCount} parcela(s) — o número de parcelas não pode ser menor que isso.`, true);
     }
     if (arredondar2(valorTotal - somaPagas) < 0) {
-      return mostrarToast(`Valor total não pode ser menor que o já pago (${moeda(somaPagas)}).`, true);
+      return mostrarToast(`O valor total não pode ser menor que o já pago (${moeda(somaPagas)}).`, true);
     }
   }
 
   const alteracoes = [];
   if (atual.descricao !== descricao) alteracoes.push({ campo: "Descrição", antes: atual.descricao, depois: descricao });
   if ((atual.responsavel || "") !== responsavel) alteracoes.push({ campo: "Responsável", antes: atual.responsavel || "—", depois: responsavel || "—" });
-  if (valorMudou) alteracoes.push({ campo: "Valor total", antes: moeda(valorTotalAtual), depois: moeda(valorTotal) });
+  if (arredondar2(valorTotal) !== valorTotalAtual) alteracoes.push({ campo: "Valor total", antes: moeda(valorTotalAtual), depois: moeda(valorTotal) });
+  if (numParcelas !== numParcelasAtual) alteracoes.push({ campo: "Nº de parcelas", antes: String(numParcelasAtual), depois: String(numParcelas) });
+  if (atual.dataCompra !== dataCompra) alteracoes.push({ campo: "Data da compra", antes: dataBR(atual.dataCompra), depois: dataBR(dataCompra) });
+  const mapaLanc = mapaLancamentos();
+  const mapaCartao = {};
+  STATE.cartoes.forEach((c) => (mapaCartao[c.id] = c));
+  if (atual.cartaoId !== cartaoId) {
+    alteracoes.push({ campo: "Cartão", antes: (mapaCartao[atual.cartaoId] || {}).nome || "(excluído)", depois: cartao.nome });
+  }
+  if (atual.lancamentoId !== lancamentoId) {
+    alteracoes.push({ campo: "Lançamento", antes: (mapaLanc[atual.lancamentoId] || {}).nome || "(excluído)", depois: (mapaLanc[lancamentoId] || {}).nome || "(excluído)" });
+  }
 
-  if (!alteracoes.length) {
+  if (!alteracoes.length && !forcarRecalculo) {
     mostrarToast("Nenhuma alteração encontrada — os dados já eram esses.");
     fecharModalEditarCompra();
     return;
   }
+  if (!alteracoes.length && forcarRecalculo) {
+    alteracoes.push({ campo: "Parcelas", antes: "—", depois: "Recalculadas manualmente com os dados atuais" });
+  }
+
+  // Se algo que afeta o cronograma mudou (cartão, valor, nº de parcelas ou
+  // data), checa se o novo valor restante cabe no limite do cartão de
+  // destino — descontando as parcelas não pagas desta própria compra, que
+  // serão substituídas (senão o limite delas contaria em dobro).
+  if (afetaCronograma) {
+    const valorRestante = arredondar2(valorTotal - somaPagas);
+    const naoPagasNoCartaoDestino = naoPagas
+      .filter((m) => String(m.cartaoId) === String(cartaoId))
+      .reduce((s, m) => s + (Number(m.valor) || 0), 0);
+    const limiteDisponivel = (Number(cartao.limiteTotal) || 0) - (calcularLimiteUtilizado(cartaoId) - naoPagasNoCartaoDestino);
+    if (valorRestante > limiteDisponivel) {
+      return mostrarToast("Limite insuficiente nesse cartão. Disponível: " + moeda(limiteDisponivel), true);
+    }
+  }
 
   try {
     const batch = writeBatch(db);
+    batch.update(doc(db, "comprasParceladas", id), { cartaoId, lancamentoId, descricao, responsavel, valorTotal, numParcelas, dataCompra });
 
-    const dadosCompra = { descricao, responsavel };
-    if (valorMudou) dadosCompra.valorTotal = valorTotal;
-    batch.update(doc(db, "comprasParceladas", id), dadosCompra);
+    if (afetaCronograma) {
+      // Apaga só as parcelas ainda não pagas e recria a partir da posição
+      // seguinte à última já paga, usando a mesma regra de fechamento da
+      // criação (calcularCicloInicial + calcularProximoVencimento).
+      naoPagas.forEach((m) => batch.delete(doc(db, "movimentacoes", m.id)));
 
-    // O ajuste de valor recai só sobre as parcelas ainda não pagas — as já
-    // pagas viraram histórico e não são mexidas. Responsável é só um dado
-    // informativo, então esse sim é atualizado em todas as parcelas.
-    const novosValores = {};
-    if (valorMudou) {
-      const restante = arredondar2(valorTotal - somaPagas);
-      const valorPorParcela = arredondar2(restante / naoPagas.length);
-      naoPagas.forEach((m, i) => {
-        novosValores[m.id] = i === naoPagas.length - 1
-          ? arredondar2(restante - valorPorParcela * (naoPagas.length - 1))
+      const parcelasRestantes = numParcelas - paidCount;
+      const valorRestante = arredondar2(valorTotal - somaPagas);
+      const valorPorParcela = arredondar2(valorRestante / parcelasRestantes);
+      const ciclo = calcularCicloInicial(dataCompra, Number(cartao.diaFechamento));
+
+      for (let i = paidCount; i < numParcelas; i++) {
+        const mesRef = new Date(ciclo.ano, ciclo.mes + i, 1);
+        const vencimento = calcularProximoVencimento(cartao.diaVencimento, mesRef);
+        const idxRestante = i - paidCount;
+        const valorDaParcela = idxRestante === parcelasRestantes - 1
+          ? arredondar2(valorRestante - valorPorParcela * (parcelasRestantes - 1))
           : valorPorParcela;
+        const movRef = doc(collection(db, "movimentacoes"));
+        batch.set(movRef, {
+          lancamentoId, data: vencimento, valor: valorDaParcela, pago: false, responsavel,
+          origem: `Cartao ${i + 1}/${numParcelas}`, cartaoId, compraParceladaId: id, createdAt: serverTimestamp()
+        });
+      }
+      // Parcelas já pagas continuam com data/valor intactos (viraram
+      // histórico) — só atualiza responsável e o rótulo "i/numParcelas",
+      // já que o total de parcelas pode ter mudado.
+      pagas.forEach((m, idx) => {
+        const dadosMov = { origem: `Cartao ${idx + 1}/${numParcelas}` };
+        if ((m.responsavel || "") !== responsavel) dadosMov.responsavel = responsavel;
+        batch.update(doc(db, "movimentacoes", m.id), dadosMov);
+      });
+    } else {
+      // Nada que afete o cronograma mudou — só propaga responsável.
+      parcelas.forEach((m) => {
+        if ((m.responsavel || "") !== responsavel) {
+          batch.update(doc(db, "movimentacoes", m.id), { responsavel });
+        }
       });
     }
-    parcelas.forEach((m) => {
-      const dadosMov = {};
-      if ((m.responsavel || "") !== responsavel) dadosMov.responsavel = responsavel;
-      if (novosValores[m.id] !== undefined) dadosMov.valor = novosValores[m.id];
-      if (Object.keys(dadosMov).length) batch.update(doc(db, "movimentacoes", m.id), dadosMov);
-    });
 
-    const mapaLanc = mapaLancamentos();
-    const nomeLanc = (mapaLanc[atual.lancamentoId] || {}).nome || "(excluído)";
+    const nomeLanc = (mapaLanc[lancamentoId] || {}).nome || "(excluído)";
     alteracoes.forEach((a) => {
       const histRef = doc(collection(db, "historico"));
       batch.set(histRef, {
-        lancamentoId: atual.lancamentoId, nomeLancamento: `${nomeLanc} (compra: ${descricao})`, campo: a.campo,
+        lancamentoId, nomeLancamento: `${nomeLanc} (compra: ${descricao})`, campo: a.campo,
         valorAnterior: String(a.antes), valorNovo: String(a.depois),
         tipoAlteracao: "Edição de compra no cartão", dataHora: serverTimestamp()
       });
     });
 
     await batch.commit();
-    mostrarToast(`Compra atualizada (${alteracoes.length} campo(s) alterado(s)).`);
+    mostrarToast(
+      forcarRecalculo
+        ? "Parcelas recalculadas com os dados atuais."
+        : `Compra atualizada (${alteracoes.length} campo(s) alterado(s))${afetaCronograma ? " — parcelas recalculadas" : ""}.`
+    );
     fecharModalEditarCompra();
   } catch (err) {
     mostrarToast("Não foi possível salvar: " + err.message, true);
   }
+}
+
+document.getElementById("btn-salvar-edicao-compra").addEventListener("click", () => salvarEdicaoCompra(false));
+document.getElementById("btn-recalcular-compra").addEventListener("click", () => {
+  if (!confirm("Recalcular as parcelas ainda não pagas desta compra com os dados atuais? Útil se elas foram criadas antes de algum ajuste na regra do sistema.")) return;
+  salvarEdicaoCompra(true);
 });
 
 document.getElementById("btn-excluir-compra").addEventListener("click", async () => {
@@ -903,23 +1125,34 @@ document.getElementById("btn-salvar-edicao-lanc").addEventListener("click", asyn
 
 /* ══════════════ MOVIMENTAÇÕES ══════════════ */
 
-document.getElementById("btn-add-movimentacao").addEventListener("click", async () => {
-  const lancamentoId = document.getElementById("mov-lancamento").value;
-  const data = document.getElementById("mov-data").value;
-  const valor = Number(document.getElementById("mov-valor").value);
-  const pago = document.getElementById("mov-pago").value === "true";
-  const responsavel = document.getElementById("mov-responsavel").value.trim();
-  if (!lancamentoId) return mostrarToast("Cadastre um lançamento primeiro.", true);
-  if (!data || !valor) return mostrarToast("Preencha data e valor.", true);
+// Lógica central de criar movimentação — usada tanto pelo formulário da
+// aba Movimentações quanto pelo modal de Ação Rápida.
+async function criarMovimentacao({ lancamentoId, data, valor, pago, responsavel }) {
+  if (!lancamentoId) { mostrarToast("Cadastre um lançamento primeiro.", true); return false; }
+  if (!data || !valor) { mostrarToast("Preencha data e valor.", true); return false; }
   try {
     await addDoc(collection(db, "movimentacoes"), {
       lancamentoId, data, valor, pago, responsavel, origem: "Manual", cartaoId: null, compraParceladaId: null, createdAt: serverTimestamp()
     });
     mostrarToast("Movimentação adicionada!");
-    document.getElementById("mov-valor").value = "";
-    document.getElementById("mov-responsavel").value = "";
+    return true;
   } catch (err) {
     mostrarToast("Não foi possível salvar: " + err.message, true);
+    return false;
+  }
+}
+
+document.getElementById("btn-add-movimentacao").addEventListener("click", async () => {
+  const ok = await criarMovimentacao({
+    lancamentoId: document.getElementById("mov-lancamento").value,
+    data: document.getElementById("mov-data").value,
+    valor: Number(document.getElementById("mov-valor").value),
+    pago: document.getElementById("mov-pago").value === "true",
+    responsavel: document.getElementById("mov-responsavel").value.trim()
+  });
+  if (ok) {
+    document.getElementById("mov-valor").value = "";
+    document.getElementById("mov-responsavel").value = "";
   }
 });
 
@@ -935,12 +1168,13 @@ function abrirModalMovimentacao(id) {
   const mov = STATE.movimentacoes.find((m) => m.id === id);
   if (!mov) return mostrarToast("Movimentação não encontrada.", true);
   preencherSelectsLancamento();
+  preencherSelectsPessoa();
   document.getElementById("edit-mov-id").value = mov.id;
   document.getElementById("edit-mov-lancamento").value = mov.lancamentoId;
   document.getElementById("edit-mov-data").value = mov.data;
   document.getElementById("edit-mov-valor").value = mov.valor;
   document.getElementById("edit-mov-pago").value = mov.pago ? "true" : "false";
-  document.getElementById("edit-mov-responsavel").value = mov.responsavel || "";
+  garantirOpcaoPessoa("edit-mov-responsavel", mov.responsavel || "");
   document.getElementById("modal-editar-mov").classList.add("active");
 }
 function fecharModalMovimentacao() {
@@ -1044,28 +1278,22 @@ document.getElementById("btn-add-cartao").addEventListener("click", async () => 
 // Escrita em lote (compra + todas as parcelas de uma vez): não depende de
 // runTransaction porque não há dois usuários disputando o mesmo limite ao
 // mesmo tempo neste sistema pessoal — a checagem de limite é informativa,
-// não uma trava contra corrida.
-document.getElementById("btn-add-compra").addEventListener("click", async () => {
-  const cartaoId = document.getElementById("compra-cartao").value;
-  const lancamentoId = document.getElementById("compra-lancamento").value;
-  const descricao = document.getElementById("compra-descricao").value.trim();
-  const responsavel = document.getElementById("compra-responsavel").value.trim();
-  const valorTotal = Number(document.getElementById("compra-valor").value);
-  const numParcelas = Number(document.getElementById("compra-parcelas").value);
-  const dataCompra = document.getElementById("compra-data").value;
-
-  if (!cartaoId) return mostrarToast("Cadastre um cartão primeiro.", true);
-  if (!lancamentoId) return mostrarToast("Cadastre um lançamento primeiro.", true);
-  if (!descricao) return mostrarToast("Descreva a compra.", true);
-  if (!valorTotal || !numParcelas || !dataCompra) return mostrarToast("Preencha valor, parcelas e data da compra.", true);
-  if (numParcelas < 1 || numParcelas > 60) return mostrarToast("Número de parcelas inválido (1 a 60).", true);
+// não uma trava contra corrida. Usada tanto pelo formulário da aba Cartão
+// de Crédito quanto pelo modal de Ação Rápida.
+async function criarCompraParcelada({ cartaoId, lancamentoId, descricao, responsavel, valorTotal, numParcelas, dataCompra }) {
+  if (!cartaoId) { mostrarToast("Cadastre um cartão primeiro.", true); return false; }
+  if (!lancamentoId) { mostrarToast("Cadastre um lançamento primeiro.", true); return false; }
+  if (!descricao) { mostrarToast("Descreva a compra.", true); return false; }
+  if (!valorTotal || !numParcelas || !dataCompra) { mostrarToast("Preencha valor, parcelas e data da compra.", true); return false; }
+  if (numParcelas < 1 || numParcelas > 60) { mostrarToast("Número de parcelas inválido (1 a 60).", true); return false; }
 
   const cartao = STATE.cartoes.find((c) => c.id === cartaoId);
-  if (!cartao) return mostrarToast("Cartão não encontrado.", true);
+  if (!cartao) { mostrarToast("Cartão não encontrado.", true); return false; }
 
   const limiteDisponivel = (Number(cartao.limiteTotal) || 0) - calcularLimiteUtilizado(cartaoId);
   if (valorTotal > limiteDisponivel) {
-    return mostrarToast("Limite insuficiente nesse cartão. Disponível: " + moeda(limiteDisponivel), true);
+    mostrarToast("Limite insuficiente nesse cartão. Disponível: " + moeda(limiteDisponivel), true);
+    return false;
   }
 
   try {
@@ -1091,31 +1319,56 @@ document.getElementById("btn-add-compra").addEventListener("click", async () => 
 
     await batch.commit();
     mostrarToast(`${numParcelas} parcela(s) de ${moeda(valorParcela)} lançada(s) em Movimentações.`);
+    return true;
+  } catch (err) {
+    mostrarToast("Não foi possível lançar a compra: " + err.message, true);
+    return false;
+  }
+}
+
+document.getElementById("btn-add-compra").addEventListener("click", async () => {
+  const ok = await criarCompraParcelada({
+    cartaoId: document.getElementById("compra-cartao").value,
+    lancamentoId: document.getElementById("compra-lancamento").value,
+    descricao: document.getElementById("compra-descricao").value.trim(),
+    responsavel: document.getElementById("compra-responsavel").value.trim(),
+    valorTotal: Number(document.getElementById("compra-valor").value),
+    numParcelas: Number(document.getElementById("compra-parcelas").value),
+    dataCompra: document.getElementById("compra-data").value
+  });
+  if (ok) {
     document.getElementById("compra-descricao").value = "";
     document.getElementById("compra-responsavel").value = "";
     document.getElementById("compra-valor").value = "";
     document.getElementById("compra-parcelas").value = "1";
-  } catch (err) {
-    mostrarToast("Não foi possível lançar a compra: " + err.message, true);
   }
 });
 
 /* ══════════════ CUSTOS RECORRENTES ══════════════ */
 
-document.getElementById("btn-add-recorrente").addEventListener("click", async () => {
-  const lancamentoId = document.getElementById("rec-lancamento").value;
-  const valor = Number(document.getElementById("rec-valor").value);
-  const dataInicio = document.getElementById("rec-inicio").value;
-  const diaVencimento = Number(document.getElementById("rec-dia").value);
-  const ativo = document.getElementById("rec-ativo").value === "true";
-  if (!lancamentoId) return mostrarToast("Cadastre um lançamento primeiro.", true);
-  if (!valor || !dataInicio || !diaVencimento) return mostrarToast("Preencha valor, data de início e dia de vencimento.", true);
+// Usada tanto pelo formulário da aba Custos Recorrentes quanto pelo modal
+// de Ação Rápida.
+async function criarRecorrente({ lancamentoId, valor, dataInicio, diaVencimento, ativo }) {
+  if (!lancamentoId) { mostrarToast("Cadastre um lançamento primeiro.", true); return false; }
+  if (!valor || !dataInicio || !diaVencimento) { mostrarToast("Preencha valor, data de início e dia de vencimento.", true); return false; }
   try {
     await addDoc(collection(db, "recorrentes"), { lancamentoId, valor, dataInicio, diaVencimento, ativo, ultimoMesLancado: "", createdAt: serverTimestamp() });
     mostrarToast("Custo recorrente cadastrado!");
+    return true;
   } catch (err) {
     mostrarToast("Não foi possível salvar: " + err.message, true);
+    return false;
   }
+}
+
+document.getElementById("btn-add-recorrente").addEventListener("click", () => {
+  criarRecorrente({
+    lancamentoId: document.getElementById("rec-lancamento").value,
+    valor: Number(document.getElementById("rec-valor").value),
+    dataInicio: document.getElementById("rec-inicio").value,
+    diaVencimento: Number(document.getElementById("rec-dia").value),
+    ativo: document.getElementById("rec-ativo").value === "true"
+  });
 });
 
 async function alternarAtivoRecorrente(id, novoAtivo) {
@@ -1166,6 +1419,350 @@ function tentarAutoLancarRecorrentes() {
   lancarRecorrentesPendentes(true).catch(() => {});
 }
 
+/* ══════════════ AÇÃO RÁPIDA (botão + na barra inferior) ══════════════ */
+
+document.querySelectorAll("#qa-tabs .qa-tab").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("#qa-tabs .qa-tab").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    document.querySelectorAll(".qa-form").forEach((f) => f.classList.add("hidden"));
+    document.getElementById(`qa-form-${btn.dataset.qaTipo}`).classList.remove("hidden");
+  });
+});
+
+function abrirModalAcaoRapida() {
+  preencherSelectsLancamento();
+  preencherSelectsPessoa();
+  preencherSelectCartoes();
+
+  document.querySelectorAll("#qa-tabs .qa-tab").forEach((b, i) => b.classList.toggle("active", i === 0));
+  document.querySelectorAll(".qa-form").forEach((f, i) => f.classList.toggle("hidden", i !== 0));
+
+  document.getElementById("qa-mov-data").valueAsDate = new Date();
+  document.getElementById("qa-mov-valor").value = "";
+  document.getElementById("qa-mov-pago").value = "false";
+  document.getElementById("qa-mov-responsavel").value = "";
+
+  document.getElementById("qa-compra-data").valueAsDate = new Date();
+  document.getElementById("qa-compra-descricao").value = "";
+  document.getElementById("qa-compra-responsavel").value = "";
+  document.getElementById("qa-compra-valor").value = "";
+  document.getElementById("qa-compra-parcelas").value = "1";
+
+  document.getElementById("qa-rec-inicio").valueAsDate = new Date();
+  document.getElementById("qa-rec-valor").value = "";
+  document.getElementById("qa-rec-dia").value = "";
+
+  document.getElementById("modal-acao-rapida").classList.add("active");
+}
+function fecharModalAcaoRapida() {
+  document.getElementById("modal-acao-rapida").classList.remove("active");
+}
+document.getElementById("btn-acao-rapida").addEventListener("click", abrirModalAcaoRapida);
+document.getElementById("btn-cancelar-acao-rapida").addEventListener("click", fecharModalAcaoRapida);
+document.getElementById("modal-acao-rapida").addEventListener("click", (e) => {
+  if (e.target.id === "modal-acao-rapida") fecharModalAcaoRapida();
+});
+
+document.getElementById("btn-salvar-acao-rapida").addEventListener("click", async () => {
+  const tipoAtivo = document.querySelector("#qa-tabs .qa-tab.active").dataset.qaTipo;
+  let ok = false;
+
+  if (tipoAtivo === "movimentacao") {
+    ok = await criarMovimentacao({
+      lancamentoId: document.getElementById("qa-mov-lancamento").value,
+      data: document.getElementById("qa-mov-data").value,
+      valor: Number(document.getElementById("qa-mov-valor").value),
+      pago: document.getElementById("qa-mov-pago").value === "true",
+      responsavel: document.getElementById("qa-mov-responsavel").value
+    });
+  } else if (tipoAtivo === "compra") {
+    ok = await criarCompraParcelada({
+      cartaoId: document.getElementById("qa-compra-cartao").value,
+      lancamentoId: document.getElementById("qa-compra-lancamento").value,
+      descricao: document.getElementById("qa-compra-descricao").value.trim(),
+      responsavel: document.getElementById("qa-compra-responsavel").value,
+      valorTotal: Number(document.getElementById("qa-compra-valor").value),
+      numParcelas: Number(document.getElementById("qa-compra-parcelas").value),
+      dataCompra: document.getElementById("qa-compra-data").value
+    });
+  } else if (tipoAtivo === "recorrente") {
+    ok = await criarRecorrente({
+      lancamentoId: document.getElementById("qa-rec-lancamento").value,
+      valor: Number(document.getElementById("qa-rec-valor").value),
+      dataInicio: document.getElementById("qa-rec-inicio").value,
+      diaVencimento: Number(document.getElementById("qa-rec-dia").value),
+      ativo: true
+    });
+  }
+
+  if (ok) fecharModalAcaoRapida();
+});
+
+// Abre sozinho na primeira vez que o app carrega NESTA sessão (aba/janela
+// aberta agora) — sessionStorage sobrevive a um F5 ou "puxar pra
+// atualizar" na mesma aba, mas começa vazio de novo numa aba/sessão nova,
+// que é exatamente o que "só ao entrar, não ao atualizar" pede. Só dispara
+// depois que os lançamentos carregarem pelo menos uma vez, senão o modal
+// abriria com os selects vazios.
+const CHAVE_SESSAO_ACAO_RAPIDA = "finleo_acao_rapida_sessao";
+function tentarAbrirAcaoRapidaAutomatica() {
+  if (!lancamentosCarregados) return;
+  if (sessionStorage.getItem(CHAVE_SESSAO_ACAO_RAPIDA)) return;
+  sessionStorage.setItem(CHAVE_SESSAO_ACAO_RAPIDA, "1");
+  abrirModalAcaoRapida();
+}
+
+/* ══════════════ PLANOS (metas de economia) ══════════════ */
+
+function calcularPlanoInfo(p) {
+  const valorAlvo = Number(p.valorAlvo) || 0;
+  const valorAcumulado = Number(p.valorAcumulado) || 0;
+  const falta = arredondar2(Math.max(valorAlvo - valorAcumulado, 0));
+  const pct = valorAlvo > 0 ? Math.min(100, (valorAcumulado / valorAlvo) * 100) : 0;
+  const concluido = valorAlvo > 0 && valorAcumulado >= valorAlvo;
+  const aporteMensal = Number(p.aportePlanejadoMensal) || 0;
+
+  let previsaoTexto = "Defina uma meta mensal ou use o simulador abaixo.";
+  if (concluido) {
+    previsaoTexto = "Meta alcançada! 🎉";
+  } else if (aporteMensal > 0) {
+    const meses = Math.ceil(falta / aporteMensal);
+    const dataPrevista = new Date();
+    dataPrevista.setMonth(dataPrevista.getMonth() + meses);
+    previsaoTexto = `≈ ${meses} ${meses === 1 ? "mês" : "meses"} (${dataPrevista.toLocaleDateString("pt-BR", { month: "short", year: "numeric" })})`;
+  }
+  return { valorAlvo, valorAcumulado, falta, pct, concluido, aporteMensal, previsaoTexto };
+}
+
+function renderPlanosKpis() {
+  let totalAlvo = 0, totalAcumulado = 0;
+  STATE.planos.forEach((p) => {
+    totalAlvo += Number(p.valorAlvo) || 0;
+    totalAcumulado += Number(p.valorAcumulado) || 0;
+  });
+  const totalFalta = Math.max(arredondar2(totalAlvo - totalAcumulado), 0);
+  document.getElementById("planos-kpi-grid").innerHTML =
+    kpiCard("Total das metas", moeda(totalAlvo), true) +
+    kpiCard("Já guardado", moeda(totalAcumulado), true) +
+    kpiCard("Falta guardar", moeda(totalFalta), totalFalta === 0);
+}
+
+function renderPlanos() {
+  const grid = document.getElementById("planos-grid");
+  renderPlanosKpis();
+  if (!STATE.planos.length) {
+    grid.innerHTML = '<div class="empty">Nenhum plano cadastrado ainda. Clique em "+ Novo plano" pra começar.</div>';
+    return;
+  }
+  const ordenados = [...STATE.planos].sort((a, b) => tsParaMillis(b.createdAt) - tsParaMillis(a.createdAt));
+  grid.innerHTML = ordenados.map((p) => {
+    const info = calcularPlanoInfo(p);
+    return (
+      `<div class="plano-card">` +
+      `<div class="plano-header">` +
+      `<div class="plano-icone">${esc(p.icone || "🎯")}</div>` +
+      `<div class="plano-titulo"><h3>${esc(p.nome)}</h3>` +
+      `<span class="stamp ${info.concluido ? "pago" : "andamento"}">${info.concluido ? "CONCLUÍDO" : "EM ANDAMENTO"}</span></div>` +
+      `<button class="btn-small" data-editar-plano="${p.id}">Editar</button>` +
+      `</div>` +
+      (p.descricao ? `<p class="plano-descricao">${esc(p.descricao)}</p>` : "") +
+      `<div class="plano-progresso">` +
+      `<div class="plano-progresso-barra"><div class="plano-progresso-fill" style="width:${info.pct}%"></div></div>` +
+      `<div class="plano-progresso-legenda"><span class="pct">${info.pct.toFixed(0)}%</span><span>${moeda(info.valorAcumulado)} de ${moeda(info.valorAlvo)}</span></div>` +
+      `</div>` +
+      `<div class="plano-stats">` +
+      `<div><span class="label">Falta</span><span class="valor">${moeda(info.falta)}</span></div>` +
+      `<div><span class="label">Meta/mês</span><span class="valor">${info.aporteMensal > 0 ? moeda(info.aporteMensal) : "—"}</span></div>` +
+      `<div><span class="label">Previsão</span><span class="valor" style="font-size:11px;">${info.previsaoTexto}</span></div>` +
+      `</div>` +
+      `<div class="plano-simulador">` +
+      `<div class="sim-titulo">Simulador — quero investir mais</div>` +
+      `<div class="field"><label>Guardando por mês (R$)</label>` +
+      `<input type="number" step="0.01" class="sim-mensal" data-plano="${p.id}" data-falta="${info.falta}" value="${info.aporteMensal || ""}" placeholder="Ex: 200"></div>` +
+      `<div class="sim-resultado" data-sim-tempo="${p.id}"></div>` +
+      `<div class="field"><label>Quero conseguir em quantos meses</label>` +
+      `<input type="number" step="1" min="1" class="sim-meses" data-plano="${p.id}" data-falta="${info.falta}" placeholder="Ex: 6"></div>` +
+      `<div class="sim-resultado" data-sim-valor="${p.id}"></div>` +
+      `</div>` +
+      `<div class="plano-footer"><button class="btn btn-primary" data-abrir-aporte="${p.id}">Registrar aporte / retirada</button></div>` +
+      `</div>`
+    );
+  }).join("");
+
+  grid.querySelectorAll("[data-editar-plano]").forEach((btn) => {
+    btn.addEventListener("click", () => abrirModalPlano(btn.dataset.editarPlano));
+  });
+  grid.querySelectorAll("[data-abrir-aporte]").forEach((btn) => {
+    btn.addEventListener("click", () => abrirModalAporte(btn.dataset.abrirAporte));
+  });
+  grid.querySelectorAll(".sim-mensal").forEach((input) => {
+    input.addEventListener("input", () => atualizarSimuladorTempo(input));
+    atualizarSimuladorTempo(input);
+  });
+  grid.querySelectorAll(".sim-meses").forEach((input) => {
+    input.addEventListener("input", () => atualizarSimuladorValor(input));
+  });
+}
+
+function atualizarSimuladorTempo(input) {
+  const falta = Number(input.dataset.falta) || 0;
+  const valorMensal = Number(input.value);
+  const out = document.querySelector(`[data-sim-tempo="${input.dataset.plano}"]`);
+  if (!out) return;
+  if (falta <= 0) { out.innerHTML = "Meta já alcançada."; return; }
+  if (!valorMensal || valorMensal <= 0) { out.innerHTML = ""; return; }
+  const meses = Math.ceil(falta / valorMensal);
+  const dataPrevista = new Date();
+  dataPrevista.setMonth(dataPrevista.getMonth() + meses);
+  out.innerHTML =
+    `Nesse ritmo: <strong>≈ ${meses} ${meses === 1 ? "mês" : "meses"}</strong> ` +
+    `(previsão: ${dataPrevista.toLocaleDateString("pt-BR", { month: "long", year: "numeric" })}) — ` +
+    `<button type="button" class="sim-usar" data-usar-mensal="${input.dataset.plano}" data-valor="${valorMensal}">usar como minha meta mensal</button>`;
+  const btn = out.querySelector("[data-usar-mensal]");
+  if (btn) btn.addEventListener("click", () => salvarMetaMensalPlano(btn.dataset.usarMensal, Number(btn.dataset.valor)));
+}
+
+function atualizarSimuladorValor(input) {
+  const falta = Number(input.dataset.falta) || 0;
+  const meses = Number(input.value);
+  const out = document.querySelector(`[data-sim-valor="${input.dataset.plano}"]`);
+  if (!out) return;
+  if (falta <= 0) { out.innerHTML = "Meta já alcançada."; return; }
+  if (!meses || meses <= 0) { out.innerHTML = ""; return; }
+  const valorNecessario = arredondar2(falta / meses);
+  out.innerHTML =
+    `Você precisa guardar <strong>${moeda(valorNecessario)}/mês</strong> — ` +
+    `<button type="button" class="sim-usar" data-usar-mensal="${input.dataset.plano}" data-valor="${valorNecessario}">usar como minha meta mensal</button>`;
+  const btn = out.querySelector("[data-usar-mensal]");
+  if (btn) btn.addEventListener("click", () => salvarMetaMensalPlano(btn.dataset.usarMensal, Number(btn.dataset.valor)));
+}
+
+async function salvarMetaMensalPlano(planoId, valor) {
+  try {
+    await updateDoc(doc(db, "planos", planoId), { aportePlanejadoMensal: valor });
+    mostrarToast("Meta mensal atualizada!");
+  } catch (err) {
+    mostrarToast("Não foi possível salvar: " + err.message, true);
+  }
+}
+
+function abrirModalPlano(id) {
+  const editando = !!id;
+  document.getElementById("modal-plano-titulo").textContent = editando ? "Editar plano" : "Novo plano";
+  document.getElementById("btn-excluir-plano").classList.toggle("hidden", !editando);
+  if (editando) {
+    const p = STATE.planos.find((x) => x.id === id);
+    if (!p) return mostrarToast("Plano não encontrado.", true);
+    document.getElementById("plano-id").value = p.id;
+    document.getElementById("plano-icone").value = p.icone || "🎯";
+    document.getElementById("plano-nome").value = p.nome;
+    document.getElementById("plano-descricao").value = p.descricao || "";
+    document.getElementById("plano-valor-alvo").value = p.valorAlvo;
+    document.getElementById("plano-aporte-mensal").value = p.aportePlanejadoMensal || "";
+  } else {
+    document.getElementById("plano-id").value = "";
+    document.getElementById("plano-icone").value = "🎯";
+    document.getElementById("plano-nome").value = "";
+    document.getElementById("plano-descricao").value = "";
+    document.getElementById("plano-valor-alvo").value = "";
+    document.getElementById("plano-aporte-mensal").value = "";
+  }
+  document.getElementById("modal-plano").classList.add("active");
+}
+function fecharModalPlano() {
+  document.getElementById("modal-plano").classList.remove("active");
+}
+document.getElementById("btn-novo-plano").addEventListener("click", () => abrirModalPlano(null));
+document.getElementById("btn-cancelar-plano").addEventListener("click", fecharModalPlano);
+document.getElementById("modal-plano").addEventListener("click", (e) => {
+  if (e.target.id === "modal-plano") fecharModalPlano();
+});
+
+document.getElementById("btn-salvar-plano").addEventListener("click", async () => {
+  const id = document.getElementById("plano-id").value;
+  const icone = document.getElementById("plano-icone").value;
+  const nome = document.getElementById("plano-nome").value.trim();
+  const descricao = document.getElementById("plano-descricao").value.trim();
+  const valorAlvo = Number(document.getElementById("plano-valor-alvo").value);
+  const aportePlanejadoMensal = Number(document.getElementById("plano-aporte-mensal").value) || 0;
+  if (!nome) return mostrarToast("Dê um nome pro plano.", true);
+  if (!valorAlvo || valorAlvo <= 0) return mostrarToast("Informe quanto o plano vai custar.", true);
+  try {
+    if (id) {
+      await updateDoc(doc(db, "planos", id), { icone, nome, descricao, valorAlvo, aportePlanejadoMensal });
+      mostrarToast("Plano atualizado!");
+    } else {
+      await addDoc(collection(db, "planos"), {
+        icone, nome, descricao, valorAlvo, aportePlanejadoMensal, valorAcumulado: 0, createdAt: serverTimestamp()
+      });
+      mostrarToast("Plano criado!");
+    }
+    fecharModalPlano();
+  } catch (err) {
+    mostrarToast("Não foi possível salvar: " + err.message, true);
+  }
+});
+
+document.getElementById("btn-excluir-plano").addEventListener("click", async () => {
+  const id = document.getElementById("plano-id").value;
+  if (!id) return;
+  if (!confirm("Excluir este plano? O histórico de aportes dele também será perdido.")) return;
+  try {
+    await deleteDoc(doc(db, "planos", id));
+    mostrarToast("Plano excluído.");
+    fecharModalPlano();
+  } catch (err) {
+    mostrarToast("Não foi possível excluir: " + err.message, true);
+  }
+});
+
+function abrirModalAporte(planoId) {
+  const p = STATE.planos.find((x) => x.id === planoId);
+  if (!p) return mostrarToast("Plano não encontrado.", true);
+  document.getElementById("aporte-plano-id").value = planoId;
+  document.getElementById("aporte-plano-nome").textContent = `${p.icone || "🎯"} ${p.nome}`;
+  document.getElementById("aporte-tipo").value = "Aporte";
+  document.getElementById("aporte-valor").value = "";
+  document.getElementById("aporte-data").valueAsDate = new Date();
+  document.getElementById("modal-aporte-plano").classList.add("active");
+}
+function fecharModalAporte() {
+  document.getElementById("modal-aporte-plano").classList.remove("active");
+}
+document.getElementById("btn-cancelar-aporte").addEventListener("click", fecharModalAporte);
+document.getElementById("modal-aporte-plano").addEventListener("click", (e) => {
+  if (e.target.id === "modal-aporte-plano") fecharModalAporte();
+});
+
+document.getElementById("btn-salvar-aporte").addEventListener("click", async () => {
+  const planoId = document.getElementById("aporte-plano-id").value;
+  const tipo = document.getElementById("aporte-tipo").value;
+  const valor = Number(document.getElementById("aporte-valor").value);
+  const data = document.getElementById("aporte-data").value;
+  if (!valor || valor <= 0) return mostrarToast("Informe um valor válido.", true);
+  if (!data) return mostrarToast("Informe a data.", true);
+
+  const p = STATE.planos.find((x) => x.id === planoId);
+  if (!p) return mostrarToast("Plano não encontrado.", true);
+  if (tipo === "Retirada" && valor > (Number(p.valorAcumulado) || 0)) {
+    return mostrarToast(`Não dá pra retirar mais do que já foi guardado (${moeda(p.valorAcumulado)}).`, true);
+  }
+
+  try {
+    const batch = writeBatch(db);
+    const delta = tipo === "Aporte" ? valor : -valor;
+    batch.update(doc(db, "planos", planoId), { valorAcumulado: increment(delta) });
+    const aporteRef = doc(collection(db, "planos", planoId, "aportes"));
+    batch.set(aporteRef, { tipo, valor, data, timestamp: serverTimestamp() });
+    await batch.commit();
+    mostrarToast(tipo === "Aporte" ? "Aporte registrado!" : "Retirada registrada!");
+    fecharModalAporte();
+  } catch (err) {
+    mostrarToast("Não foi possível salvar: " + err.message, true);
+  }
+});
+
 /* ══════════════ CONFIGURAÇÕES ══════════════ */
 
 document.getElementById("btn-salvar-config").addEventListener("click", async () => {
@@ -1185,6 +1782,8 @@ function iniciarListeners() {
   onSnapshot(query(collection(db, "lancamentos"), orderBy("nome")), (snap) => {
     STATE.lancamentos = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     renderAll();
+    lancamentosCarregados = true;
+    tentarAbrirAcaoRapidaAutomatica();
   }, (err) => mostrarToast("Erro ao carregar lançamentos: " + err.message, true));
 
   onSnapshot(query(collection(db, "movimentacoes"), orderBy("data", "desc")), (snap) => {
@@ -1204,6 +1803,7 @@ function iniciarListeners() {
     STATE.comprasParceladas = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     renderComprasParceladas();
     renderParcelasCartao();
+    renderMovimentacoes();
   }, (err) => mostrarToast("Erro ao carregar compras parceladas: " + err.message, true));
 
   onSnapshot(collection(db, "recorrentes"), (snap) => {
@@ -1217,6 +1817,16 @@ function iniciarListeners() {
     STATE.historico = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     renderHistorico();
   }, (err) => mostrarToast("Erro ao carregar histórico: " + err.message, true));
+
+  onSnapshot(query(collection(db, "pessoas"), orderBy("nome")), (snap) => {
+    STATE.pessoas = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    preencherSelectsPessoa();
+  }, (err) => mostrarToast("Erro ao carregar pessoas: " + err.message, true));
+
+  onSnapshot(collection(db, "planos"), (snap) => {
+    STATE.planos = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    renderPlanos();
+  }, (err) => mostrarToast("Erro ao carregar planos: " + err.message, true));
 
   onSnapshot(collection(db, "feriados"), (snap) => {
     STATE.feriados = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
@@ -1239,7 +1849,9 @@ document.getElementById("compra-data").valueAsDate = new Date();
 
 const hojeInicial = new Date();
 const mesInicial = `${hojeInicial.getFullYear()}-${String(hojeInicial.getMonth() + 1).padStart(2, "0")}`;
-document.getElementById("mov-filtro-mes").value = mesInicial;
-STATE.filtroMovMes = mesInicial;
+document.getElementById("mov-filtro-mes-de").value = mesInicial;
+document.getElementById("mov-filtro-mes-ate").value = mesInicial;
+STATE.filtroMovMesDe = mesInicial;
+STATE.filtroMovMesAte = mesInicial;
 
 iniciarListeners();

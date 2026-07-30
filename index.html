@@ -38,6 +38,7 @@
     <a data-view="lancamentos"><span class="ico">🏷️</span>Lançamentos</a>
     <a data-view="cartao"><span class="ico">💳</span>Cartão de Crédito</a>
     <a data-view="recorrentes"><span class="ico">🔁</span>Custos Recorrentes</a>
+    <a data-view="planos"><span class="ico">🎯</span>Planos</a>
     <a data-view="historico"><span class="ico">🕒</span>Histórico</a>
     <a data-view="config"><span class="ico">⚙️</span>Configurações</a>
   </nav>
@@ -87,7 +88,10 @@
         </div>
         <div class="field">
           <label>Quem comprou</label>
-          <input type="text" id="mov-responsavel" placeholder="Ex: Leonardo...">
+          <div class="select-add">
+            <select id="mov-responsavel"><option value="">— Não informado —</option></select>
+            <button type="button" class="btn-add-inline" data-abrir-nova-pessoa="mov-responsavel" title="Cadastrar nova pessoa">+</button>
+          </div>
         </div>
         <div class="field">
           <label>Situação</label>
@@ -104,9 +108,17 @@
     <div class="card">
       <h2>Movimentações cadastradas</h2>
       <div class="row">
-        <div class="field" style="max-width:220px;">
-          <label>Filtrar por mês</label>
-          <input type="month" id="mov-filtro-mes">
+        <div class="field" style="max-width:180px;">
+          <label>De</label>
+          <input type="month" id="mov-filtro-mes-de">
+        </div>
+        <div class="field" style="max-width:180px;">
+          <label>Até</label>
+          <input type="month" id="mov-filtro-mes-ate">
+        </div>
+        <div class="field" style="max-width:200px;">
+          <label>Pessoa</label>
+          <select id="mov-filtro-pessoa"><option value="">Todas as pessoas</option></select>
         </div>
         <button class="btn" id="btn-mov-todos-meses">Ver todos os meses</button>
       </div>
@@ -214,7 +226,10 @@
         </div>
         <div class="field">
           <label>Quem comprou</label>
-          <input type="text" id="compra-responsavel" placeholder="Ex: Leonardo...">
+          <div class="select-add">
+            <select id="compra-responsavel"><option value="">— Não informado —</option></select>
+            <button type="button" class="btn-add-inline" data-abrir-nova-pessoa="compra-responsavel" title="Cadastrar nova pessoa">+</button>
+          </div>
         </div>
       </div>
       <div class="row" style="margin-top:10px;">
@@ -305,6 +320,19 @@
     </div>
   </section>
 
+  <!-- PLANOS -->
+  <section id="view-planos" class="view">
+    <header class="top"><div><h1>Planos</h1>
+      <p class="view-desc">Metas de economia — uma viagem, um notebook, o que você quiser. Cadastre quanto custa, guarde aos poucos e acompanhe a previsão de quando consegue chegar lá.</p>
+    </div>
+    <div class="top-actions"><button class="btn btn-primary" id="btn-novo-plano">+ Novo plano</button></div>
+    </header>
+    <div class="kpi-grid" id="planos-kpi-grid"></div>
+    <div class="planos-grid" id="planos-grid">
+      <div class="empty">Carregando planos…</div>
+    </div>
+  </section>
+
   <!-- HISTÓRICO -->
   <section id="view-historico" class="view">
     <header class="top"><div><h1>Histórico de Alterações</h1>
@@ -392,7 +420,10 @@
     </div>
     <div class="field" style="margin-top:10px;">
       <label>Quem comprou</label>
-      <input type="text" id="edit-mov-responsavel">
+      <div class="select-add">
+        <select id="edit-mov-responsavel"><option value="">— Não informado —</option></select>
+        <button type="button" class="btn-add-inline" data-abrir-nova-pessoa="edit-mov-responsavel" title="Cadastrar nova pessoa">+</button>
+      </div>
     </div>
     <div class="field" style="margin-top:10px;">
       <label>Situação</label>
@@ -518,23 +549,51 @@
 
 <!-- MODAL: editar/excluir compra parcelada -->
 <div class="modal-overlay" id="modal-editar-compra">
-  <div class="modal-box">
+  <div class="modal-box" style="max-width:480px;">
     <h2>Editar compra parcelada</h2>
     <input type="hidden" id="edit-compra-id">
-    <div class="field" style="margin-top:14px;">
+    <p class="hint" id="edit-compra-info" style="margin-top:6px;"></p>
+    <div class="row" style="margin-top:10px;">
+      <div class="field">
+        <label>Cartão</label>
+        <select id="edit-compra-cartao"></select>
+      </div>
+      <div class="field">
+        <label>Lançamento</label>
+        <div class="select-add">
+          <select id="edit-compra-lancamento"></select>
+          <button type="button" class="btn-add-inline" data-abrir-novo-lancamento="edit-compra-lancamento" title="Cadastrar novo lançamento">+</button>
+        </div>
+      </div>
+    </div>
+    <div class="field" style="margin-top:10px;">
       <label>Descrição</label>
       <input type="text" id="edit-compra-descricao">
     </div>
     <div class="field" style="margin-top:10px;">
       <label>Quem comprou</label>
-      <input type="text" id="edit-compra-responsavel">
+      <div class="select-add">
+        <select id="edit-compra-responsavel"><option value="">— Não informado —</option></select>
+        <button type="button" class="btn-add-inline" data-abrir-nova-pessoa="edit-compra-responsavel" title="Cadastrar nova pessoa">+</button>
+      </div>
+    </div>
+    <div class="row" style="margin-top:10px;">
+      <div class="field">
+        <label>Valor total (R$)</label>
+        <input type="number" step="0.01" id="edit-compra-valor">
+      </div>
+      <div class="field">
+        <label>Nº de parcelas</label>
+        <input type="number" min="1" max="60" id="edit-compra-parcelas">
+      </div>
     </div>
     <div class="field" style="margin-top:10px;">
-      <label>Valor total (R$)</label>
-      <input type="number" step="0.01" id="edit-compra-valor">
+      <label>Data da compra</label>
+      <input type="date" id="edit-compra-data">
     </div>
-    <p class="hint" id="edit-compra-hint-valor">Em caso de erro no valor, corrija aqui: o ajuste é distribuído só entre as parcelas ainda não pagas (as já pagas não mudam, pois já viraram histórico).</p>
-    <p class="hint">Nº de parcelas, cartão e lançamento não podem ser editados aqui — envolveriam recalcular todas as parcelas já lançadas. Pra corrigir algo assim, exclua esta compra e lance de novo.</p>
+    <p class="hint">Mudar cartão, valor, nº de parcelas ou data da compra recalcula automaticamente as parcelas ainda não pagas em Movimentações (respeitando o dia de fechamento do cartão — compra feita a partir do fechamento entra na fatura do mês seguinte). Parcelas já pagas nunca são alteradas.</p>
+    <button class="btn" id="btn-recalcular-compra" style="width:100%;margin-top:6px;">🔄 Recalcular parcelas com os dados atuais</button>
+    <p class="hint" style="margin-top:6px;">Use isso se as parcelas foram criadas antes de algum ajuste na regra do sistema (ex: data de vencimento errada) — recalcula mesmo sem mudar nenhum campo acima.</p>
     <div class="row" style="justify-content:space-between; margin-top:18px;">
       <button class="btn btn-danger" id="btn-excluir-compra">Excluir compra</button>
       <div class="row" style="width:auto;">
@@ -543,6 +602,206 @@
       </div>
     </div>
   </div>
+</div>
+
+<!-- MODAL: nova pessoa (reutilizado a partir de qualquer campo "Quem comprou") -->
+<div class="modal-overlay" id="modal-nova-pessoa">
+  <div class="modal-box">
+    <h2>Nova pessoa</h2>
+    <div class="field" style="margin-top:14px;">
+      <label>Nome</label>
+      <input type="text" id="nova-pessoa-nome" placeholder="Ex: Leonardo, Paula...">
+    </div>
+    <div class="row" style="justify-content:flex-end; margin-top:18px;">
+      <button class="btn" id="btn-cancelar-nova-pessoa">Cancelar</button>
+      <button class="btn btn-primary" id="btn-salvar-nova-pessoa">Cadastrar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: novo/editar plano -->
+<div class="modal-overlay" id="modal-plano">
+  <div class="modal-box" style="max-width:480px;">
+    <h2 id="modal-plano-titulo">Novo plano</h2>
+    <input type="hidden" id="plano-id">
+    <div class="row" style="margin-top:14px;">
+      <div class="field" style="max-width:110px;">
+        <label>Ícone</label>
+        <select id="plano-icone">
+          <option value="🎯">🎯</option>
+          <option value="🏠">🏠</option>
+          <option value="🚗">🚗</option>
+          <option value="✈️">✈️</option>
+          <option value="🎓">🎓</option>
+          <option value="💍">💍</option>
+          <option value="📱">📱</option>
+          <option value="💻">💻</option>
+          <option value="🛋️">🛋️</option>
+          <option value="🎉">🎉</option>
+          <option value="🏖️">🏖️</option>
+          <option value="🚲">🚲</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Nome do plano</label>
+        <input type="text" id="plano-nome" placeholder="Ex: Viagem pra praia, Notebook novo...">
+      </div>
+    </div>
+    <div class="field" style="margin-top:10px;">
+      <label>Descrição</label>
+      <textarea id="plano-descricao" rows="3" placeholder="Detalhes do plano — o que é, por quê, quando..." style="font-family:var(--sans);padding:10px 11px;border:1.5px solid var(--line);border-radius:9px;background:#fffdfe;font-size:13.5px;color:var(--ink);resize:vertical;"></textarea>
+    </div>
+    <div class="row" style="margin-top:10px;">
+      <div class="field">
+        <label>Quanto vai custar (R$)</label>
+        <input type="number" step="0.01" id="plano-valor-alvo">
+      </div>
+      <div class="field">
+        <label>Meta de economia por mês (R$)</label>
+        <input type="number" step="0.01" id="plano-aporte-mensal" placeholder="Opcional">
+      </div>
+    </div>
+    <p class="hint">A meta mensal é só um valor de referência pra calcular a previsão — pode editar ou deixar em branco e usar o simulador no card do plano.</p>
+    <div class="row" style="justify-content:space-between; margin-top:18px;">
+      <button class="btn btn-danger" id="btn-excluir-plano">Excluir plano</button>
+      <div class="row" style="width:auto;">
+        <button class="btn" id="btn-cancelar-plano">Cancelar</button>
+        <button class="btn btn-primary" id="btn-salvar-plano">Salvar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: registrar aporte/retirada num plano -->
+<div class="modal-overlay" id="modal-aporte-plano">
+  <div class="modal-box">
+    <h2>Registrar movimento no plano</h2>
+    <input type="hidden" id="aporte-plano-id">
+    <p class="hint" id="aporte-plano-nome" style="margin-top:6px;font-weight:700;color:var(--ink);"></p>
+    <div class="field" style="margin-top:10px;">
+      <label>Tipo</label>
+      <select id="aporte-tipo">
+        <option value="Aporte">Aporte (guardei mais dinheiro)</option>
+        <option value="Retirada">Retirada (usei/tirei dinheiro do plano)</option>
+      </select>
+    </div>
+    <div class="field" style="margin-top:10px;">
+      <label>Valor (R$)</label>
+      <input type="number" step="0.01" id="aporte-valor">
+    </div>
+    <div class="field" style="margin-top:10px;">
+      <label>Data</label>
+      <input type="date" id="aporte-data">
+    </div>
+    <div class="row" style="justify-content:flex-end; margin-top:18px;">
+      <button class="btn" id="btn-cancelar-aporte">Cancelar</button>
+      <button class="btn btn-primary" id="btn-salvar-aporte">Registrar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: Ação rápida -->
+<div class="modal-overlay" id="modal-acao-rapida">
+  <div class="modal-box" style="max-width:480px;">
+    <h2>Ação rápida</h2>
+    <div class="qa-tabs" id="qa-tabs">
+      <button type="button" class="qa-tab active" data-qa-tipo="movimentacao">💸 Movimentação</button>
+      <button type="button" class="qa-tab" data-qa-tipo="compra">💳 Compra no cartão</button>
+      <button type="button" class="qa-tab" data-qa-tipo="recorrente">🔁 Recorrente</button>
+    </div>
+
+    <div class="qa-form" id="qa-form-movimentacao">
+      <div class="field" style="margin-top:14px;">
+        <label>Lançamento</label>
+        <div class="select-add">
+          <select id="qa-mov-lancamento"></select>
+          <button type="button" class="btn-add-inline" data-abrir-novo-lancamento="qa-mov-lancamento" title="Cadastrar novo lançamento">+</button>
+        </div>
+      </div>
+      <div class="row" style="margin-top:10px;">
+        <div class="field"><label>Data</label><input type="date" id="qa-mov-data"></div>
+        <div class="field"><label>Valor (R$)</label><input type="number" step="0.01" id="qa-mov-valor" placeholder="0,00"></div>
+      </div>
+      <div class="row" style="margin-top:10px;">
+        <div class="field">
+          <label>Quem comprou</label>
+          <div class="select-add">
+            <select id="qa-mov-responsavel"><option value="">— Não informado —</option></select>
+            <button type="button" class="btn-add-inline" data-abrir-nova-pessoa="qa-mov-responsavel" title="Cadastrar nova pessoa">+</button>
+          </div>
+        </div>
+        <div class="field">
+          <label>Situação</label>
+          <select id="qa-mov-pago">
+            <option value="false">Não pago</option>
+            <option value="true">Pago</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="qa-form hidden" id="qa-form-compra">
+      <div class="row" style="margin-top:14px;">
+        <div class="field">
+          <label>Cartão</label>
+          <select id="qa-compra-cartao"></select>
+        </div>
+        <div class="field">
+          <label>Lançamento</label>
+          <div class="select-add">
+            <select id="qa-compra-lancamento"></select>
+            <button type="button" class="btn-add-inline" data-abrir-novo-lancamento="qa-compra-lancamento" title="Cadastrar novo lançamento">+</button>
+          </div>
+        </div>
+      </div>
+      <div class="field" style="margin-top:10px;">
+        <label>Descrição</label>
+        <input type="text" id="qa-compra-descricao" placeholder="Ex: Ifood, Uber...">
+      </div>
+      <div class="field" style="margin-top:10px;">
+        <label>Quem comprou</label>
+        <div class="select-add">
+          <select id="qa-compra-responsavel"><option value="">— Não informado —</option></select>
+          <button type="button" class="btn-add-inline" data-abrir-nova-pessoa="qa-compra-responsavel" title="Cadastrar nova pessoa">+</button>
+        </div>
+      </div>
+      <div class="row" style="margin-top:10px;">
+        <div class="field"><label>Valor total (R$)</label><input type="number" step="0.01" id="qa-compra-valor"></div>
+        <div class="field"><label>Nº de parcelas</label><input type="number" min="1" max="60" id="qa-compra-parcelas" value="1"></div>
+      </div>
+      <div class="field" style="margin-top:10px;">
+        <label>Data da compra</label>
+        <input type="date" id="qa-compra-data">
+      </div>
+    </div>
+
+    <div class="qa-form hidden" id="qa-form-recorrente">
+      <div class="field" style="margin-top:14px;">
+        <label>Lançamento</label>
+        <div class="select-add">
+          <select id="qa-rec-lancamento"></select>
+          <button type="button" class="btn-add-inline" data-abrir-novo-lancamento="qa-rec-lancamento" title="Cadastrar novo lançamento">+</button>
+        </div>
+      </div>
+      <div class="row" style="margin-top:10px;">
+        <div class="field"><label>Valor (R$)</label><input type="number" step="0.01" id="qa-rec-valor"></div>
+        <div class="field"><label>Dia vencimento</label><input type="number" min="1" max="31" id="qa-rec-dia"></div>
+      </div>
+      <div class="field" style="margin-top:10px;">
+        <label>Data início</label>
+        <input type="date" id="qa-rec-inicio">
+      </div>
+    </div>
+
+    <div class="row" style="justify-content:flex-end; margin-top:18px;">
+      <button class="btn" id="btn-cancelar-acao-rapida">Cancelar</button>
+      <button class="btn btn-primary" id="btn-salvar-acao-rapida">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<div class="fab-bar">
+  <button class="fab-btn" id="btn-acao-rapida" title="Ação rápida">+</button>
 </div>
 
 <div class="toast hidden" id="toast">
