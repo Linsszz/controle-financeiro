@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Controle Financeiro Leonardo · Planilha administrativa</title>
+<title>Controle Financeiro Pamplona · Planilha administrativa</title>
 <meta name="robots" content="noindex, nofollow">
 <!--
   Página de manutenção direta do banco (Firestore), pra quando for preciso
@@ -19,8 +19,8 @@
 -->
 <style>
 :root{
-  --bg:#F8F5FC; --panel:#FFFFFF; --ink:#2C1F3D; --ink-soft:#6B5C82; --ink-faint:#A99BC0; --line:#E8DFF5;
-  --accent:#9B5DE5; --accent-soft:#F1E6FC; --roxo:#7C3AED;
+  --bg:#F5F7FA; --panel:#FFFFFF; --ink:#1F2A3D; --ink-soft:#5C6B85; --ink-faint:#9AA7BD; --line:#DDE4EE;
+  --accent:#2C4C7C; --accent-soft:#E6EBF3; --roxo:#1B3358;
   --credit:#16A34A; --credit-soft:#DCFCE7; --debit:#DC2626; --debit-soft:#FEE2E2;
   --radius:12px; --display:'Sora',sans-serif; --sans:'Manrope','Helvetica Neue',Arial,sans-serif;
   --mono:'IBM Plex Mono','SFMono-Regular',Consolas,monospace;
@@ -69,7 +69,7 @@ td.check-col .celula{padding:8px;}
 <div id="tela-bloqueada">Verificando acesso...</div>
 
 <div class="topo">
-  <h1>Controle Financeiro Leonardo · Planilha administrativa</h1>
+  <h1>Controle Financeiro Pamplona · Planilha administrativa</h1>
   <div class="aviso">Ferramenta de manutenção — edita o banco direto. Não é o app principal.</div>
 </div>
 
@@ -110,22 +110,23 @@ import {
 // ══════════════ CONFIGURAÇÃO DO DOMÍNIO ══════════════
 const COLECOES = [
   { nome: "lancamentos", label: "Lançamentos", campos: ["nome", "tipo", "categoria"] },
-  { nome: "movimentacoes", label: "Movimentações", campos: ["lancamentoId", "data", "valor", "pago", "responsavel", "origem", "cartaoId", "compraParceladaId"] },
+  { nome: "movimentacoes", label: "Movimentações", campos: ["lancamentoId", "data", "valor", "pago", "responsavel", "origem", "cartaoId", "compraParceladaId", "pluggyTransactionId"] },
   { nome: "cartoes", label: "Cartões", campos: ["nome", "limiteTotal", "diaFechamento", "diaVencimento", "ativo"] },
   { nome: "comprasParceladas", label: "Compras parceladas", campos: ["cartaoId", "lancamentoId", "descricao", "responsavel", "valorTotal", "numParcelas", "dataCompra"] },
   { nome: "recorrentes", label: "Custos recorrentes", campos: ["lancamentoId", "valor", "dataInicio", "diaVencimento", "ativo", "ultimoMesLancado"] },
   { nome: "planos", label: "Planos", campos: ["icone", "nome", "descricao", "valorAlvo", "valorAcumulado", "aportePlanejadoMensal"] },
   { nome: "pessoas", label: "Pessoas", campos: ["nome"] },
+  { nome: "conexoesBancarias", label: "Conexões Bancárias", campos: ["itemId", "instituicao", "status", "ultimaSincronizacao"] },
   { nome: "historico", label: "Histórico", campos: ["lancamentoId", "nomeLancamento", "campo", "valorAnterior", "valorNovo", "tipoAlteracao"] },
   { nome: "config", label: "Configurações", campos: ["rendaMensal", "saldoInicial"] },
   { nome: "feriados", label: "Feriados", campos: ["data", "descricao"] }
 ];
 
-// Hash SHA-256 da senha "leonardo2026" — TROQUE por uma senha sua. Veja no
+// Hash SHA-256 da senha "pamplona2026" — TROQUE por uma senha sua. Veja no
 // README como calcular o hash de uma senha nova (ou peça pra quem te
 // ajudou a montar o sistema).
-const SENHA_HASH = "c25d13c5107f3a97e198d46496d11b2c7b04982d6f09d60b79907087a18df31f";
-const CHAVE_LOCALSTORAGE = "finleo_planilha_ok";
+const SENHA_HASH = "fe5c2a702e9d92853cb352d2402516c1ce035d7f51307b5f35f1e2b112ce35db";
+const CHAVE_LOCALSTORAGE = "finpamplona_planilha_ok";
 
 // ══════════════ ESTADO ══════════════
 

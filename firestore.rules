@@ -110,5 +110,17 @@ service cloud.firestore {
         allow update, delete: if false;
       }
     }
+
+    // Conexões Bancárias (Open Finance via Pluggy) — só o vínculo com cada
+    // "item" (instituição conectada) fica aqui. As credenciais reais nunca
+    // passam pelo Firestore: ficam nas Script Properties do Code.gs.
+    match /conexoesBancarias/{id} {
+      allow read: if true;
+      allow create, update: if request.resource.data.itemId is string
+                    && request.resource.data.itemId.size() > 0
+                    && request.resource.data.instituicao is string
+                    && request.resource.data.status is string;
+      allow delete: if true;
+    }
   }
 }

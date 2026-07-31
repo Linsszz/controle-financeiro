@@ -1,7 +1,7 @@
-/* Padrão visual felipe-firebase-style — sidebar roxa, cards, tabelas. */
+/* Padrão visual felipe-firebase-style — sidebar navy, cards, tabelas. */
 :root{
-  --bg:#F8F5FC; --panel:#FFFFFF; --ink:#2C1F3D; --ink-soft:#6B5C82; --ink-faint:#A99BC0; --line:#E8DFF5;
-  --accent:#9B5DE5; --accent-soft:#F1E6FC; --accent-deep:#7C3AED; --roxo:#7C3AED;
+  --bg:#F5F7FA; --panel:#FFFFFF; --ink:#1F2A3D; --ink-soft:#5C6B85; --ink-faint:#9AA7BD; --line:#DDE4EE;
+  --accent:#2C4C7C; --accent-soft:#E6EBF3; --accent-deep:#1B3358; --roxo:#1B3358;
   --credit:#16A34A; --credit-soft:#DCFCE7; --debit:#DC2626; --debit-soft:#FEE2E2;
   --warn:#D97706; --warn-soft:#FEF3C7; --info:#3B82F6; --info-soft:#E4EDFF;
   --radius:14px; --display:'Sora',sans-serif; --sans:'Manrope','Helvetica Neue',Arial,sans-serif;
@@ -29,7 +29,7 @@ button,input,select,textarea{font-family:var(--sans);}
 .sidebar a.active{background:var(--accent);color:#fff;}
 
 .mobile-topbar{display:none;}
-.sidebar-backdrop{position:fixed;inset:0;background:rgba(20,10,35,.45);z-index:125;display:none;}
+.sidebar-backdrop{position:fixed;inset:0;background:rgba(10,18,32,.45);z-index:125;display:none;}
 .sidebar-backdrop.active{display:block;}
 @media(max-width:900px){
   body{flex-direction:column;}
@@ -87,6 +87,10 @@ tbody tr.linha-clicavel{cursor:pointer;}
 .stamp.ativo{color:var(--credit);background:var(--credit-soft);}
 .stamp.inativo{color:var(--debit);background:var(--debit-soft);}
 .stamp.andamento{color:var(--info);background:var(--info-soft);}
+.stamp.conectado{color:var(--credit);background:var(--credit-soft);}
+.stamp.erro{color:var(--debit);background:var(--debit-soft);}
+.stamp.reconexao{color:var(--warn);background:var(--warn-soft);}
+.stamp.revisar{color:var(--warn);background:var(--warn-soft);cursor:default;margin-left:6px;vertical-align:middle;}
 
 .badge-tipo{font-size:11px;padding:3px 10px;border-radius:20px;font-weight:700;}
 .badge-tipo.Entrada{background:var(--credit-soft);color:var(--credit);}
@@ -98,14 +102,19 @@ tbody tr.linha-clicavel{cursor:pointer;}
 
 .campo-alterado{font-family:var(--mono);font-size:11.5px;background:var(--accent-soft);color:var(--roxo);padding:3px 9px;border-radius:6px;}
 
-.modal-overlay{display:none;position:fixed;inset:0;background:rgba(20,10,35,.5);align-items:center;justify-content:center;z-index:200;padding:16px;}
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(10,18,32,.5);align-items:center;justify-content:center;z-index:200;padding:16px;}
 .modal-overlay.active{display:flex;}
+/* "Novo lançamento" e "Nova pessoa" são reabertos de DENTRO de outros
+   modais (ex: a partir da Ação rápida) — sem isso, os dois ficam na mesma
+   camada e quem abriu por último acaba atrás, por causa da ordem no HTML. */
+#modal-novo-lancamento.active,
+#modal-nova-pessoa.active{z-index:210;}
 .modal-box{background:var(--panel);border-radius:16px;padding:26px;width:100%;max-width:440px;border:1px solid var(--line);box-shadow:0 20px 50px rgba(0,0,0,.25);}
 .modal-box h2{font-family:var(--display);font-weight:800;font-size:17px;margin-bottom:6px;}
 .modal-box .field{margin-bottom:4px;}
 
-.fab-bar{position:fixed;left:0;right:0;bottom:0;height:64px;display:flex;align-items:center;justify-content:center;background:linear-gradient(to top,rgba(248,245,252,.97) 55%,rgba(248,245,252,0));z-index:150;pointer-events:none;padding-bottom:env(safe-area-inset-bottom);}
-.fab-btn{pointer-events:auto;width:54px;height:54px;border-radius:50%;background:var(--roxo);color:#fff;border:none;font-size:28px;font-weight:400;line-height:1;cursor:pointer;box-shadow:0 8px 22px rgba(124,58,237,.45);display:flex;align-items:center;justify-content:center;transition:transform .15s ease,background .15s ease;}
+.fab-bar{position:fixed;left:0;right:0;bottom:0;height:64px;display:flex;align-items:center;justify-content:center;background:linear-gradient(to top,rgba(245,247,250,.97) 55%,rgba(245,247,250,0));z-index:150;pointer-events:none;padding-bottom:env(safe-area-inset-bottom);}
+.fab-btn{pointer-events:auto;width:54px;height:54px;border-radius:50%;background:var(--roxo);color:#fff;border:none;font-size:28px;font-weight:400;line-height:1;cursor:pointer;box-shadow:0 8px 22px rgba(27,51,88,.45);display:flex;align-items:center;justify-content:center;transition:transform .15s ease,background .15s ease;}
 .fab-btn:hover{background:var(--accent-deep);transform:scale(1.06);}
 .fab-btn:active{transform:scale(.96);}
 
@@ -116,6 +125,8 @@ tbody tr.linha-clicavel{cursor:pointer;}
 
 .select-add{display:flex;gap:6px;align-items:stretch;}
 .select-add select{flex:1;min-width:0;}
+.select-add input[type="text"]{flex:1;min-width:0;font-family:var(--sans);padding:10px 11px;border:1.5px solid var(--line);border-radius:9px;background:#fffdfe;font-size:13.5px;color:var(--ink);}
+.select-add input[type="text"]:focus{outline:none;border-color:var(--roxo);}
 .btn-add-inline{flex:none;width:40px;border-radius:9px;border:1.5px solid var(--roxo);background:var(--accent-soft);color:var(--roxo);font-weight:800;font-size:17px;cursor:pointer;line-height:1;}
 .btn-add-inline:hover{background:var(--roxo);color:#fff;}
 
@@ -151,9 +162,21 @@ tbody tr.linha-clicavel{cursor:pointer;}
 .plano-footer{display:flex;gap:8px;flex-wrap:wrap;}
 .plano-footer .btn{flex:1;}
 
+.conexoes-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;margin-bottom:22px;}
+.conexao-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:18px;}
+.conexao-card .conexao-topo{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:10px;}
+.conexao-card h3{font-family:var(--display);font-size:15px;font-weight:800;color:var(--ink);}
+.conexao-card .conexao-info{font-size:12px;color:var(--ink-soft);margin-bottom:12px;}
+.conexao-card .btn{width:100%;}
+.conexao-toggle{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-soft);font-weight:600;margin-bottom:12px;cursor:pointer;}
+.conexao-toggle input{width:15px;height:15px;cursor:pointer;flex:none;}
+.conexao-card.conexao-oculta{opacity:.55;}
+.conexao-card.conexao-oculta h3::after{content:" (oculto)";font-size:11px;font-weight:600;color:var(--ink-faint);}
+
 @media (max-width:640px){
   .planos-grid{grid-template-columns:1fr;}
   .plano-stats{grid-template-columns:1fr 1fr 1fr;gap:4px;}
+  .conexoes-grid{grid-template-columns:1fr;}
 
   .app{padding:16px 14px 80px;}
   .kpi-grid{grid-template-columns:1fr 1fr;gap:10px;}

@@ -1,9 +1,16 @@
-// Financeiro Leonardo — lógica do app. Firestore no lugar do Apps Script:
+// Financeiro Pamplona — lógica do app. Firestore no lugar do Apps Script:
 // onSnapshot mantém tudo em tempo real, sem precisar recarregar a página.
 // Regras de negócio (vencimento em dia útil, cálculo do dashboard, limite do
 // cartão) foram trazidas do Code.gs original e agora rodam aqui no navegador.
+//
+// A única exceção é a integração de Open Finance (Pluggy, aba "Conexões
+// Bancárias") — o clientId/clientSecret da Pluggy NUNCA podem aparecer aqui
+// (este arquivo é público, visível por "ver código-fonte"), então o app.js
+// só fala com um Apps Script mínimo (Code.gs) que guarda esses segredos nas
+// Script Properties e repassa as chamadas pra API da Pluggy. Veja
+// PLUGGY_PROXY_URL em firebase-init.js e a seção "CONEXÕES BANCÁRIAS" abaixo.
 
-import { db } from "./firebase-init.js";
+import { db, PLUGGY_PROXY_URL } from "./firebase-init.js";
 import {
   collection, addDoc, updateDoc, deleteDoc, setDoc, doc, increment,
   onSnapshot, query, orderBy, serverTimestamp, writeBatch
@@ -19,11 +26,20 @@ const STATE = {
   feriados: [],
   planos: [],
   pessoas: [],
+  conexoesBancarias: [],
   config: { rendaMensal: 0, saldoInicial: 0 },
   filtroMovMesDe: "",
   filtroMovMesAte: "",
-  filtroMovPessoa: ""
+  filtroMovPessoa: "",
+  filtroMovBanco: "",
+  filtroMovTipoConta: "",
+  filtroMovRevisado: ""
 };
+
+// Evita sincronizar a mesma conexão bancária mais de uma vez por sessão —
+// o listener de conexoesBancarias dispara de novo a cada escrita (inclusive
+// as que a própria sincronização faz), então sem essa guarda viraria loop.
+const conexoesAutoSincronizadasNestaSessao = new Set();
 
 let recorrentesCarregados = false;
 let jaVerificouRecorrentesPendentes = false;
@@ -104,6 +120,26 @@ function mapaLancamentos() {
   const m = {};
   STATE.lancamentos.forEach((l) => (m[l.id] = l));
   return m;
+}
+
+// "Filtro mestre" das conexões bancárias: cada conexão tem um interruptor
+// "Incluir no uso pessoal" (aba Conexões Bancárias). Uma conexão desligada
+// some do Dashboard e de Movimentações em todo o app — só volta a aparecer
+// religando o interruptor lá, não tem um jeito de "espiar" só numa tela.
+// Serve pra separar conta PJ compartilhada de uso pessoal, por exemplo.
+function conexoesAtivasParaPessoal() {
+  const set = new Set();
+  STATE.conexoesBancarias.forEach((c) => { if (c.ativoParaPessoal !== false) set.add(c.id); });
+  return set;
+}
+
+// Dado antigo do Open Finance sem "conexaoId" (importado antes desse campo
+// existir) fica visível por padrão — não escondemos algo sem saber de qual
+// banco veio, pra não sumir dado sem explicação.
+function movimentacaoVisivel(m, conexoesAtivas) {
+  if (m.origem !== "Open Finance") return true;
+  if (!m.conexaoId) return true;
+  return conexoesAtivas.has(m.conexaoId);
 }
 
 /* ══════════════ REGRAS DE NEGÓCIO (vindas do Code.gs original) ══════════════ */
@@ -192,7 +228,9 @@ function calcularDashboard() {
   let saidasPagasMes = 0;
   let parcelasCartaoFuturas = 0;
 
+  const conexoesAtivas = conexoesAtivasParaPessoal();
   STATE.movimentacoes.forEach((m) => {
+    if (!movimentacaoVisivel(m, conexoesAtivas)) return;
     const l = mapaLanc[m.lancamentoId] || {};
     const valor = Number(m.valor) || 0;
     const ehSaida = l.tipo === "Saida";
@@ -280,22 +318,64 @@ function preencherCategorias() {
   document.getElementById("lista-categorias").innerHTML = categorias.map((c) => `<option value="${esc(c)}"></option>`).join("");
 }
 
+const CAMPOS_BUSCA_LANCAMENTO = [
+  "mov-lancamento", "rec-lancamento", "compra-lancamento", "edit-mov-lancamento", "edit-rec-lancamento", "edit-compra-lancamento",
+  "qa-mov-lancamento", "qa-compra-lancamento", "qa-rec-lancamento"
+];
+
+function rotuloLancamento(l) {
+  return `${l.nome} (${l.tipo === "Entrada" ? "Entrada" : "Saída"} — ${l.categoria})`;
+}
+
+// Cada campo "Lançamento" é, por baixo dos panos, um <input type="hidden">
+// com o MESMO id que o <select> antigo tinha — todo o resto do código
+// (leituras de .value, validações) continua funcionando sem mudar nada.
+// O que aparece pra digitar é um <input type="text"> com sufixo "-busca",
+// filtrado por um <datalist>. Esta função escreve nos dois: o hidden (ID)
+// e o texto visível (rótulo), a partir de um lancamentoId.
+function definirComboLancamento(id, lancamentoId) {
+  const hidden = document.getElementById(id);
+  const busca = document.getElementById(id + "-busca");
+  const l = STATE.lancamentos.find((x) => x.id === lancamentoId);
+  hidden.value = l ? l.id : "";
+  if (busca) busca.value = l ? rotuloLancamento(l) : "";
+}
+
+// Liga cada campo de busca ao hidden correspondente — só precisa rodar uma
+// vez (não a cada render), senão os listeners se acumulariam.
+function iniciarBuscaLancamento() {
+  CAMPOS_BUSCA_LANCAMENTO.forEach((id) => {
+    const busca = document.getElementById(id + "-busca");
+    if (!busca) return;
+    busca.addEventListener("input", () => {
+      const alvo = STATE.lancamentos.find((l) => rotuloLancamento(l) === busca.value);
+      document.getElementById(id).value = alvo ? alvo.id : "";
+    });
+  });
+}
+
 function preencherSelectsLancamento() {
-  const opcoes = STATE.lancamentos.map((l) => (
-    `<option value="${l.id}">${esc(l.nome)} (${l.tipo === "Entrada" ? "Entrada" : "Saída"} — ${esc(l.categoria)})</option>`
-  )).join("");
-  [
-    "mov-lancamento", "rec-lancamento", "compra-lancamento", "edit-mov-lancamento", "edit-rec-lancamento", "edit-compra-lancamento",
-    "qa-mov-lancamento", "qa-compra-lancamento", "qa-rec-lancamento"
-  ].forEach((id) => {
-    const sel = document.getElementById(id);
-    const valorAtual = sel.value;
-    sel.innerHTML = opcoes;
-    if (pendingSelecaoLancamento && pendingSelecaoLancamento.selectId === id && STATE.lancamentos.some((l) => l.id === pendingSelecaoLancamento.lancamentoId)) {
-      sel.value = pendingSelecaoLancamento.lancamentoId;
+  const datalistHtml = STATE.lancamentos.map((l) => `<option value="${esc(rotuloLancamento(l))}">`).join("");
+  const mapaPorId = mapaLancamentos();
+
+  CAMPOS_BUSCA_LANCAMENTO.forEach((id) => {
+    const hidden = document.getElementById(id);
+    const busca = document.getElementById(id + "-busca");
+    const datalist = document.getElementById("dl-" + id);
+    if (datalist) datalist.innerHTML = datalistHtml;
+
+    if (pendingSelecaoLancamento && pendingSelecaoLancamento.selectId === id && mapaPorId[pendingSelecaoLancamento.lancamentoId]) {
+      definirComboLancamento(id, pendingSelecaoLancamento.lancamentoId);
       pendingSelecaoLancamento = null;
-    } else if (valorAtual) {
-      sel.value = valorAtual;
+    } else if (hidden.value && !mapaPorId[hidden.value]) {
+      // O lançamento selecionado foi excluído — limpa em vez de deixar um
+      // ID morto guardado.
+      hidden.value = "";
+      if (busca) busca.value = "";
+    } else if (hidden.value && busca && document.activeElement !== busca) {
+      // Mantém o texto visível sincronizado (ex: se o nome do lançamento
+      // mudou), mas nunca sobrescreve enquanto a pessoa está digitando.
+      busca.value = rotuloLancamento(mapaPorId[hidden.value]);
     }
   });
 }
@@ -416,6 +496,21 @@ function filtrarPorPessoa(lista) {
   return lista.filter((m) => (m.responsavel || "") === STATE.filtroMovPessoa);
 }
 
+function filtrarPorBanco(lista) {
+  if (!STATE.filtroMovBanco) return lista;
+  return lista.filter((m) => (m.instituicao || "") === STATE.filtroMovBanco);
+}
+
+function filtrarPorTipoConta(lista) {
+  if (!STATE.filtroMovTipoConta) return lista;
+  return lista.filter((m) => (m.contaTipo || "") === STATE.filtroMovTipoConta);
+}
+
+function filtrarNaoRevisadas(lista) {
+  if (STATE.filtroMovRevisado !== "nao") return lista;
+  return lista.filter((m) => m.origem === "Open Finance" && m.revisado !== true);
+}
+
 // Opções do filtro vêm da união de "pessoas" cadastradas + qualquer nome
 // já usado em movimentações (cobre registros antigos com texto livre) —
 // assim ninguém some do filtro só porque não foi formalmente cadastrado.
@@ -430,50 +525,105 @@ function preencherFiltroPessoa(enriquecidas) {
   if (valorAtual) sel.value = valorAtual;
 }
 
+// Mesma ideia do filtro de pessoa: união das conexões bancárias cadastradas
+// + qualquer nome de banco já usado em movimentações importadas.
+function preencherFiltroBanco(enriquecidas) {
+  const nomes = new Set();
+  STATE.conexoesBancarias.forEach((c) => { if (c.instituicao) nomes.add(c.instituicao); });
+  enriquecidas.forEach((m) => { if (m.instituicao) nomes.add(m.instituicao); });
+  const sel = document.getElementById("mov-filtro-banco");
+  const valorAtual = sel.value;
+  sel.innerHTML = '<option value="">Todos os bancos</option>' +
+    [...nomes].sort((a, b) => a.localeCompare(b, "pt-BR")).map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join("");
+  if (valorAtual) sel.value = valorAtual;
+}
+
 document.getElementById("mov-filtro-pessoa").addEventListener("change", (e) => {
   STATE.filtroMovPessoa = e.target.value;
   renderMovimentacoes();
 });
+document.getElementById("mov-filtro-banco").addEventListener("change", (e) => {
+  STATE.filtroMovBanco = e.target.value;
+  renderMovimentacoes();
+});
+document.getElementById("mov-filtro-tipo-conta").addEventListener("change", (e) => {
+  STATE.filtroMovTipoConta = e.target.value;
+  renderMovimentacoes();
+});
+document.getElementById("mov-filtro-revisado").addEventListener("change", (e) => {
+  STATE.filtroMovRevisado = e.target.value;
+  renderMovimentacoes();
+});
 
+// Separa por tipo (Entrada/Saída) ANTES de separar por pago/não pago — uma
+// entrada não paga é dinheiro a RECEBER, não a pagar (são fluxos opostos,
+// misturar os dois num "a pagar" só não fazia sentido). Segue a mesma regra
+// do calcularDashboard(): só conta como saída quando o tipo é
+// exatamente "Saida"; qualquer outra coisa (Entrada, ou lançamento
+// excluído) cai do lado de "receber".
 function renderMovKpis(filtradas) {
-  let totalPago = 0, totalNaoPago = 0, qtdPago = 0, qtdNaoPago = 0;
+  let totalPago = 0, qtdPago = 0, totalRecebido = 0, qtdRecebido = 0;
+  let totalAPagar = 0, qtdAPagar = 0, totalAReceber = 0, qtdAReceber = 0;
   filtradas.forEach((m) => {
-    if (m.pago) { totalPago += Number(m.valor) || 0; qtdPago++; }
-    else { totalNaoPago += Number(m.valor) || 0; qtdNaoPago++; }
+    const valor = Number(m.valor) || 0;
+    const ehSaida = m.tipo === "Saida";
+    if (m.pago) {
+      if (ehSaida) { totalPago += valor; qtdPago++; } else { totalRecebido += valor; qtdRecebido++; }
+    } else {
+      if (ehSaida) { totalAPagar += valor; qtdAPagar++; } else { totalAReceber += valor; qtdAReceber++; }
+    }
   });
   document.getElementById("mov-kpi-grid").innerHTML =
     kpiCard("Pago no período", moeda(totalPago) + ` <small>(${qtdPago})</small>`, true) +
-    kpiCard("A pagar no período", moeda(totalNaoPago) + ` <small>(${qtdNaoPago})</small>`, totalNaoPago === 0);
+    kpiCard("Recebido no período", moeda(totalRecebido) + ` <small>(${qtdRecebido})</small>`, true) +
+    kpiCard("A pagar no período", moeda(totalAPagar) + ` <small>(${qtdAPagar})</small>`, totalAPagar === 0) +
+    kpiCard("A receber no período", moeda(totalAReceber) + ` <small>(${qtdAReceber})</small>`, totalAReceber === 0);
 }
 
 function renderMovimentacoes() {
   const mapaLanc = mapaLancamentos();
   const mapaCompra = {};
   STATE.comprasParceladas.forEach((c) => (mapaCompra[c.id] = c));
-  const enriquecidas = STATE.movimentacoes.map((m) => {
-    const l = mapaLanc[m.lancamentoId] || {};
-    const compra = m.compraParceladaId ? mapaCompra[m.compraParceladaId] : null;
-    return {
-      ...m, nomeLancamento: l.nome || "(excluído)", tipo: l.tipo || "", categoria: l.categoria || "",
-      descricaoCompra: compra ? compra.descricao : ""
-    };
-  });
+  const conexoesAtivas = conexoesAtivasParaPessoal();
+  const enriquecidas = STATE.movimentacoes
+    .filter((m) => movimentacaoVisivel(m, conexoesAtivas))
+    .map((m) => {
+      const l = mapaLanc[m.lancamentoId] || {};
+      const compra = m.compraParceladaId ? mapaCompra[m.compraParceladaId] : null;
+      return {
+        ...m, nomeLancamento: l.nome || "(excluído)", tipo: l.tipo || "", categoria: l.categoria || "",
+        descricaoCompra: compra ? compra.descricao : ""
+      };
+    });
 
   preencherFiltroPessoa(enriquecidas);
-  const filtradas = filtrarPorPessoa(filtrarPorMes(enriquecidas));
+  preencherFiltroBanco(enriquecidas);
+  const filtradas = filtrarNaoRevisadas(filtrarPorTipoConta(filtrarPorBanco(filtrarPorPessoa(filtrarPorMes(enriquecidas)))));
 
   const body = document.getElementById("movs-body");
   if (!filtradas.length) {
-    const temFiltro = STATE.filtroMovMesDe || STATE.filtroMovMesAte || STATE.filtroMovPessoa;
+    const temFiltro = STATE.filtroMovMesDe || STATE.filtroMovMesAte || STATE.filtroMovPessoa
+      || STATE.filtroMovBanco || STATE.filtroMovTipoConta || STATE.filtroMovRevisado;
     body.innerHTML = `<tr><td colspan="7" class="empty">${temFiltro ? "Nenhuma movimentação com esse filtro." : "Nenhuma movimentação registrada ainda."}</td></tr>`;
   } else {
-    body.innerHTML = filtradas.map((m) => (
-      `<tr class="linha-clicavel" data-abrir-mov="${m.id}">` +
-      `<td>${dataBR(m.data)}</td><td>${esc(m.nomeLancamento)}${m.descricaoCompra ? `<span class="sublabel">${esc(m.descricaoCompra)}</span>` : ""}</td>` +
-      `<td><span class="badge-tipo ${m.tipo}">${m.tipo === "Entrada" ? "Entrada" : (m.tipo ? "Saída" : "")}</span></td>` +
-      `<td>${esc(m.categoria)}</td><td>${esc(m.responsavel || "")}</td><td class="num">${moeda(m.valor)}</td>` +
-      `<td><span class="stamp ${m.pago ? "pago" : "pendente"}" data-alternar-pagamento="${m.id}" data-novo-pago="${!m.pago}">${m.pago ? "PAGO" : "PENDENTE"}</span></td></tr>`
-    )).join("");
+    body.innerHTML = filtradas.map((m) => {
+      const aRevisar = m.origem === "Open Finance" && m.revisado !== true;
+      const rotuloBanco = m.instituicao
+        ? `🏦 ${m.instituicao}${m.contaTipo === "cartao" ? " (cartão)" : ""}`
+        : (m.origem === "Open Finance" ? "🏦 Banco não identificado (sincronizado antes do rastreamento por banco)" : "");
+      const sublabels = [
+        m.descricaoCompra,
+        rotuloBanco,
+        m.descricaoOrigem
+      ].filter(Boolean).map((s) => `<span class="sublabel">${esc(s)}</span>`).join("");
+      return (
+        `<tr class="linha-clicavel" data-abrir-mov="${m.id}">` +
+        `<td>${dataBR(m.data)}</td><td>${esc(m.nomeLancamento)}${aRevisar ? ' <span class="stamp revisar">A REVISAR</span>' : ""}${sublabels}</td>` +
+        `<td><span class="badge-tipo ${m.tipo}">${m.tipo === "Entrada" ? "Entrada" : (m.tipo ? "Saída" : "")}</span></td>` +
+        `<td>${esc(m.categoria)}</td><td>${esc(m.responsavel || "")}</td><td class="num">${moeda(m.valor)}</td>` +
+        `<td><span class="stamp ${m.pago ? "pago" : "pendente"}" data-alternar-pagamento="${m.id}" data-novo-pago="${!m.pago}">${m.pago ? "PAGO" : "PENDENTE"}</span></td></tr>`
+      );
+    }).join("");
     document.querySelectorAll("[data-abrir-mov]").forEach((tr) => {
       tr.addEventListener("click", () => abrirModalMovimentacao(tr.dataset.abrirMov));
     });
@@ -721,7 +871,7 @@ function abrirModalEditarCompra(id) {
   preencherSelectsPessoa();
   document.getElementById("edit-compra-id").value = c.id;
   document.getElementById("edit-compra-cartao").value = c.cartaoId;
-  document.getElementById("edit-compra-lancamento").value = c.lancamentoId;
+  definirComboLancamento("edit-compra-lancamento", c.lancamentoId);
   document.getElementById("edit-compra-descricao").value = c.descricao;
   garantirOpcaoPessoa("edit-compra-responsavel", c.responsavel || "");
   document.getElementById("edit-compra-valor").value = c.valorTotal;
@@ -931,6 +1081,200 @@ document.getElementById("btn-excluir-compra").addEventListener("click", async ()
   }
 });
 
+/* ══════════════ CONEXÕES BANCÁRIAS (Open Finance via Pluggy — só leitura) ══════════════
+ *
+ * Escopo desta integração: importar transações/saldos do banco PRA DENTRO
+ * do app, como movimentações normais. Não existe (e não deve ser criado)
+ * nenhum caminho de código aqui que iniciе pagamento, transferência, PIX ou
+ * qualquer outra ação que mexa em dinheiro de verdade — é leitura, ponto.
+ *
+ * O app.js nunca guarda nem vê clientId/clientSecret da Pluggy: ele só
+ * conversa com o Code.gs (Apps Script Web App, URL em PLUGGY_PROXY_URL),
+ * que é quem tem as credenciais (Script Properties) e fala com a API da
+ * Pluggy. O widget "Pluggy Connect" (carregado no index.html) é quem
+ * mostra a tela de login do banco — dentro do iframe controlado pela
+ * própria Pluggy, este app nunca vê usuário/senha do banco.
+ */
+
+// Chama o proxy (Code.gs) com uma ação e devolve a resposta já validada.
+async function chamarProxyPluggy(body) {
+  if (!PLUGGY_PROXY_URL || PLUGGY_PROXY_URL.startsWith("COLE_AQUI")) {
+    throw new Error("Configure PLUGGY_PROXY_URL em firebase-init.js primeiro (veja o README).");
+  }
+  const resp = await fetch(PLUGGY_PROXY_URL, {
+    method: "POST",
+    body: JSON.stringify(body)
+  }).then((r) => r.json());
+  if (!resp || resp.ok === false) {
+    throw new Error((resp && resp.erro) || "Erro na integração bancária.");
+  }
+  return resp;
+}
+
+function renderConexoes() {
+  const grid = document.getElementById("conexoes-grid");
+  if (!grid) return;
+  if (!STATE.conexoesBancarias.length) {
+    grid.innerHTML = '<div class="empty">Nenhum banco conectado ainda. Clique em "+ Conectar novo banco" pra começar.</div>';
+    return;
+  }
+  const ordenadas = [...STATE.conexoesBancarias].sort((a, b) => tsParaMillis(b.createdAt) - tsParaMillis(a.createdAt));
+  grid.innerHTML = ordenadas.map((c) => {
+    const statusClasse = c.status === "conectado" ? "conectado" : (c.status === "reconexao_necessaria" ? "reconexao" : "erro");
+    const statusTexto = c.status === "conectado" ? "CONECTADO" : (c.status === "reconexao_necessaria" ? "RECONEXÃO NECESSÁRIA" : "ERRO");
+    const ultimaSinc = c.ultimaSincronizacao ? fmtDataHora(c.ultimaSincronizacao) : "nunca sincronizado";
+    const incluido = c.ativoParaPessoal !== false;
+    return (
+      `<div class="conexao-card${incluido ? "" : " conexao-oculta"}">` +
+      `<div class="conexao-topo"><h3>${esc(c.instituicao || "Banco")}</h3><span class="stamp ${statusClasse}">${statusTexto}</span></div>` +
+      `<div class="conexao-info">Última sincronização: ${esc(ultimaSinc)}</div>` +
+      `<label class="conexao-toggle"><input type="checkbox" data-alternar-inclusao-pessoal="${c.id}" data-novo-valor="${!incluido}" ${incluido ? "checked" : ""}> Incluir no uso pessoal (Dashboard e Movimentações)</label>` +
+      `<button class="btn btn-primary" data-sincronizar-conexao="${c.id}">🔄 Sincronizar agora</button>` +
+      `</div>`
+    );
+  }).join("");
+  grid.querySelectorAll("[data-sincronizar-conexao]").forEach((btn) => {
+    btn.addEventListener("click", () => sincronizarConexao(btn.dataset.sincronizarConexao));
+  });
+  grid.querySelectorAll("[data-alternar-inclusao-pessoal]").forEach((chk) => {
+    chk.addEventListener("change", async () => {
+      try {
+        await updateDoc(doc(db, "conexoesBancarias", chk.dataset.alternarInclusaoPessoal), { ativoParaPessoal: chk.dataset.novoValor === "true" });
+      } catch (err) {
+        mostrarToast("Não foi possível salvar: " + err.message, true);
+      }
+    });
+  });
+}
+
+// Garante que existe um lançamento genérico "Importado do banco" pro tipo
+// pedido (Entrada ou Saída) — reaproveita se já existe um com esse nome E
+// esse tipo, senão cria. É pra onde vão transações importadas sem categoria
+// própria; o usuário edita a movimentação normalmente depois pra recategorizar.
+async function garantirLancamentoImportado(tipo) {
+  const nome = "Importado do banco";
+  const existente = STATE.lancamentos.find((l) => l.nome === nome && l.tipo === tipo);
+  if (existente) return existente.id;
+  const ref = await addDoc(collection(db, "lancamentos"), {
+    nome, tipo, categoria: "Open Finance (a revisar)", createdAt: serverTimestamp()
+  });
+  return ref.id;
+}
+
+// Busca contas + transações (últimos 90 dias) de uma conexão, ignora o que
+// já foi importado antes (dedupe por pluggyTransactionId) e grava o resto
+// em lote como movimentações normais.
+async function sincronizarConexao(conexaoId) {
+  const conexao = STATE.conexoesBancarias.find((c) => c.id === conexaoId);
+  if (!conexao) return mostrarToast("Conexão não encontrada.", true);
+  try {
+    mostrarToast(`Sincronizando ${conexao.instituicao || "banco"}...`);
+
+    const respContas = await chamarProxyPluggy({ action: "listAccounts", itemId: conexao.itemId });
+    const contas = respContas.accounts || [];
+    if (!contas.length) {
+      await updateDoc(doc(db, "conexoesBancarias", conexaoId), { ultimaSincronizacao: serverTimestamp(), status: "conectado" });
+      mostrarToast("Nenhuma conta encontrada nesta conexão.");
+      return;
+    }
+
+    const hoje = new Date();
+    const de = new Date(hoje);
+    de.setDate(de.getDate() - 90);
+    const dataDe = formatarDataISO(de);
+    const dataAte = formatarDataISO(hoje);
+
+    // "cartao" vem do type "CREDIT" que a Pluggy devolve pra cartão de
+    // crédito — é só uma etiqueta pra filtrar em Movimentações, não tem
+    // nenhuma relação com o cadastro manual de cartões (fatura, parcelas
+    // etc.) — são dois jeitos independentes de registrar gasto no cartão.
+    let todasTransacoes = [];
+    for (const conta of contas) {
+      const contaTipo = conta.type === "CREDIT" ? "cartao" : "banco";
+      const respTrans = await chamarProxyPluggy({ action: "listTransactions", accountId: conta.id, from: dataDe, to: dataAte });
+      (respTrans.transactions || []).forEach((t) => { t._contaTipo = contaTipo; });
+      todasTransacoes = todasTransacoes.concat(respTrans.transactions || []);
+    }
+
+    const jaImportadas = new Set(STATE.movimentacoes.map((m) => m.pluggyTransactionId).filter(Boolean));
+    const novas = todasTransacoes.filter((t) => t.id && !jaImportadas.has(t.id));
+
+    if (!novas.length) {
+      await updateDoc(doc(db, "conexoesBancarias", conexaoId), { ultimaSincronizacao: serverTimestamp(), status: "conectado" });
+      mostrarToast("Tudo em dia — nenhuma transação nova.");
+      return;
+    }
+
+    // Cria (ou reaproveita) os lançamentos genéricos ANTES do lote, pra já
+    // ter o ID deles na hora de gravar as movimentações.
+    const lancEntradaId = await garantirLancamentoImportado("Entrada");
+    const lancSaidaId = await garantirLancamentoImportado("Saida");
+
+    const batch = writeBatch(db);
+    novas.forEach((t) => {
+      const valor = Number(t.amount) || 0;
+      const tipo = valor < 0 ? "Saida" : "Entrada";
+      const lancamentoId = tipo === "Saida" ? lancSaidaId : lancEntradaId;
+      const movRef = doc(collection(db, "movimentacoes"));
+      // Transação já aconteceu no extrato do banco, então entra como "paga"
+      // — é histórico, não uma previsão.
+      batch.set(movRef, {
+        lancamentoId, data: String(t.date || dataAte).slice(0, 10), valor: Math.abs(arredondar2(valor)), pago: true,
+        responsavel: "", origem: "Open Finance", cartaoId: null, compraParceladaId: null,
+        pluggyTransactionId: t.id, conexaoId: conexaoId, instituicao: conexao.instituicao || "Banco",
+        contaTipo: t._contaTipo || "banco", revisado: false, descricaoOrigem: t.description || t.descriptionRaw || "",
+        createdAt: serverTimestamp()
+      });
+    });
+    batch.update(doc(db, "conexoesBancarias", conexaoId), { ultimaSincronizacao: serverTimestamp(), status: "conectado" });
+    await batch.commit();
+    mostrarToast(`${novas.length} transação(ões) importada(s) de ${conexao.instituicao || "banco"}. Recategorize em Movimentações se quiser.`);
+  } catch (err) {
+    mostrarToast("Não foi possível sincronizar: " + err.message, true);
+    try { await updateDoc(doc(db, "conexoesBancarias", conexaoId), { status: "erro" }); } catch (err2) { /* ignora falha secundária */ }
+  }
+}
+
+const btnConectarBanco = document.getElementById("btn-conectar-banco");
+if (btnConectarBanco) {
+  btnConectarBanco.addEventListener("click", async () => {
+    try {
+      const resp = await chamarProxyPluggy({ action: "connectToken" });
+      if (!resp.connectToken) throw new Error("Token de conexão não recebido.");
+      if (typeof window.PluggyConnect === "undefined") {
+        throw new Error("Widget da Pluggy Connect não carregou — confira o <script> no index.html.");
+      }
+      const pluggyConnect = new window.PluggyConnect({
+        connectToken: resp.connectToken,
+        // Sandbox da Pluggy (plano gratuito) só conecta a bancos de teste —
+        // troque pra false só depois de migrar pra uma conta de produção
+        // (veja o README, seção "Conexões Bancárias").
+        includeSandbox: true,
+        onSuccess: async (itemData) => {
+          try {
+            const item = (itemData && itemData.item) || {};
+            const instituicao = (item.connector && item.connector.name) || "Banco conectado";
+            const ref = await addDoc(collection(db, "conexoesBancarias"), {
+              itemId: item.id, instituicao, status: "conectado", ultimaSincronizacao: null,
+              ativoParaPessoal: true, createdAt: serverTimestamp()
+            });
+            mostrarToast("Banco conectado! Importando as transações...");
+            await sincronizarConexao(ref.id);
+          } catch (err) {
+            mostrarToast("Banco conectado, mas não foi possível salvar a conexão: " + err.message, true);
+          }
+        },
+        onError: () => mostrarToast("Não foi possível conectar o banco. Tente novamente.", true)
+      });
+      pluggyConnect.init();
+    } catch (err) {
+      mostrarToast("Não foi possível iniciar a conexão bancária: " + err.message, true);
+    }
+  });
+}
+
+/* ══════════════ CUSTOS RECORRENTES ══════════════ */
+
 function renderRecKpis() {
   const ativos = STATE.recorrentes.filter((r) => r.ativo === true);
   const inativos = STATE.recorrentes.filter((r) => r.ativo !== true);
@@ -973,7 +1317,7 @@ function abrirModalEditarRecorrente(id) {
   if (!r) return mostrarToast("Custo recorrente não encontrado.", true);
   preencherSelectsLancamento();
   document.getElementById("edit-rec-id").value = r.id;
-  document.getElementById("edit-rec-lancamento").value = r.lancamentoId;
+  definirComboLancamento("edit-rec-lancamento", r.lancamentoId);
   document.getElementById("edit-rec-valor").value = r.valor;
   document.getElementById("edit-rec-inicio").value = r.dataInicio;
   document.getElementById("edit-rec-dia").value = r.diaVencimento;
@@ -1170,11 +1514,24 @@ function abrirModalMovimentacao(id) {
   preencherSelectsLancamento();
   preencherSelectsPessoa();
   document.getElementById("edit-mov-id").value = mov.id;
-  document.getElementById("edit-mov-lancamento").value = mov.lancamentoId;
+  definirComboLancamento("edit-mov-lancamento", mov.lancamentoId);
   document.getElementById("edit-mov-data").value = mov.data;
   document.getElementById("edit-mov-valor").value = mov.valor;
   document.getElementById("edit-mov-pago").value = mov.pago ? "true" : "false";
   garantirOpcaoPessoa("edit-mov-responsavel", mov.responsavel || "");
+
+  const infoEl = document.getElementById("edit-mov-info");
+  if (mov.origem === "Open Finance") {
+    const partes = [`Importada do banco ${mov.instituicao || ""}`.trim()];
+    if (mov.descricaoOrigem) partes.push(`descrição original: "${mov.descricaoOrigem}"`);
+    partes.push(mov.revisado === true ? "já revisada." : "escolha o lançamento certo abaixo pra dizer do que se trata.");
+    infoEl.textContent = partes.join(" — ");
+    infoEl.classList.remove("hidden");
+  } else {
+    infoEl.textContent = "";
+    infoEl.classList.add("hidden");
+  }
+
   document.getElementById("modal-editar-mov").classList.add("active");
 }
 function fecharModalMovimentacao() {
@@ -1218,8 +1575,15 @@ document.getElementById("btn-salvar-edicao-mov").addEventListener("click", async
     return;
   }
 
+  const dadosAtualizar = { lancamentoId, data, valor, pago, responsavel };
+  // Abrir o modal e salvar já conta como "revisado" pra transações vindas
+  // do Open Finance — é o gesto de "olhei e disse do que se trata".
+  if (atual.origem === "Open Finance" && atual.revisado !== true) {
+    dadosAtualizar.revisado = true;
+  }
+
   try {
-    await updateDoc(doc(db, "movimentacoes", id), { lancamentoId, data, valor, pago, responsavel });
+    await updateDoc(doc(db, "movimentacoes", id), dadosAtualizar);
     for (const a of alteracoes) {
       await addDoc(collection(db, "historico"), {
         lancamentoId, nomeLancamento: nomeDepois, campo: a.campo,
@@ -1344,81 +1708,6 @@ document.getElementById("btn-add-compra").addEventListener("click", async () => 
   }
 });
 
-/* ══════════════ CUSTOS RECORRENTES ══════════════ */
-
-// Usada tanto pelo formulário da aba Custos Recorrentes quanto pelo modal
-// de Ação Rápida.
-async function criarRecorrente({ lancamentoId, valor, dataInicio, diaVencimento, ativo }) {
-  if (!lancamentoId) { mostrarToast("Cadastre um lançamento primeiro.", true); return false; }
-  if (!valor || !dataInicio || !diaVencimento) { mostrarToast("Preencha valor, data de início e dia de vencimento.", true); return false; }
-  try {
-    await addDoc(collection(db, "recorrentes"), { lancamentoId, valor, dataInicio, diaVencimento, ativo, ultimoMesLancado: "", createdAt: serverTimestamp() });
-    mostrarToast("Custo recorrente cadastrado!");
-    return true;
-  } catch (err) {
-    mostrarToast("Não foi possível salvar: " + err.message, true);
-    return false;
-  }
-}
-
-document.getElementById("btn-add-recorrente").addEventListener("click", () => {
-  criarRecorrente({
-    lancamentoId: document.getElementById("rec-lancamento").value,
-    valor: Number(document.getElementById("rec-valor").value),
-    dataInicio: document.getElementById("rec-inicio").value,
-    diaVencimento: Number(document.getElementById("rec-dia").value),
-    ativo: document.getElementById("rec-ativo").value === "true"
-  });
-});
-
-async function alternarAtivoRecorrente(id, novoAtivo) {
-  try {
-    await updateDoc(doc(db, "recorrentes", id), { ativo: novoAtivo });
-  } catch (err) {
-    mostrarToast("Não foi possível atualizar: " + err.message, true);
-  }
-}
-
-// Substitui o gatilho mensal do Apps Script (não existe "servidor" sem Cloud
-// Functions): qualquer pessoa que abrir o app já dispara essa checagem uma
-// vez, e lança os recorrentes que ainda não saíram este mês.
-async function lancarRecorrentesPendentes(silencioso) {
-  const hoje = new Date();
-  const mesAtual = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`;
-  const pendentes = STATE.recorrentes.filter((r) => r.ativo === true && r.ultimoMesLancado !== mesAtual);
-
-  if (!pendentes.length) {
-    if (!silencioso) mostrarToast("Nenhum custo recorrente pendente este mês.");
-    return;
-  }
-
-  let lancados = 0;
-  for (const r of pendentes) {
-    try {
-      const vencimento = calcularProximoVencimento(r.diaVencimento, hoje);
-      await addDoc(collection(db, "movimentacoes"), {
-        lancamentoId: r.lancamentoId, data: vencimento, valor: Number(r.valor),
-        pago: false, origem: "Recorrente", cartaoId: null, compraParceladaId: null, createdAt: serverTimestamp()
-      });
-      await updateDoc(doc(db, "recorrentes", r.id), { ultimoMesLancado: mesAtual });
-      lancados++;
-    } catch (err) {
-      mostrarToast("Erro ao lançar recorrente: " + err.message, true);
-    }
-  }
-  if (lancados > 0) {
-    mostrarToast(`${lancados} custo(s) recorrente(s) lançado(s)${silencioso ? " automaticamente" : ""} em Movimentações.`);
-  }
-}
-
-document.getElementById("btn-lancar-pendentes").addEventListener("click", () => lancarRecorrentesPendentes(false));
-
-function tentarAutoLancarRecorrentes() {
-  if (jaVerificouRecorrentesPendentes || !recorrentesCarregados) return;
-  jaVerificouRecorrentesPendentes = true;
-  lancarRecorrentesPendentes(true).catch(() => {});
-}
-
 /* ══════════════ AÇÃO RÁPIDA (botão + na barra inferior) ══════════════ */
 
 document.querySelectorAll("#qa-tabs .qa-tab").forEach((btn) => {
@@ -1505,12 +1794,87 @@ document.getElementById("btn-salvar-acao-rapida").addEventListener("click", asyn
 // que é exatamente o que "só ao entrar, não ao atualizar" pede. Só dispara
 // depois que os lançamentos carregarem pelo menos uma vez, senão o modal
 // abriria com os selects vazios.
-const CHAVE_SESSAO_ACAO_RAPIDA = "finleo_acao_rapida_sessao";
+const CHAVE_SESSAO_ACAO_RAPIDA = "finpamplona_acao_rapida_sessao";
 function tentarAbrirAcaoRapidaAutomatica() {
   if (!lancamentosCarregados) return;
   if (sessionStorage.getItem(CHAVE_SESSAO_ACAO_RAPIDA)) return;
   sessionStorage.setItem(CHAVE_SESSAO_ACAO_RAPIDA, "1");
   abrirModalAcaoRapida();
+}
+
+/* ══════════════ CUSTOS RECORRENTES: criação e checagem automática ══════════════ */
+
+// Usada tanto pelo formulário da aba Custos Recorrentes quanto pelo modal
+// de Ação Rápida.
+async function criarRecorrente({ lancamentoId, valor, dataInicio, diaVencimento, ativo }) {
+  if (!lancamentoId) { mostrarToast("Cadastre um lançamento primeiro.", true); return false; }
+  if (!valor || !dataInicio || !diaVencimento) { mostrarToast("Preencha valor, data de início e dia de vencimento.", true); return false; }
+  try {
+    await addDoc(collection(db, "recorrentes"), { lancamentoId, valor, dataInicio, diaVencimento, ativo, ultimoMesLancado: "", createdAt: serverTimestamp() });
+    mostrarToast("Custo recorrente cadastrado!");
+    return true;
+  } catch (err) {
+    mostrarToast("Não foi possível salvar: " + err.message, true);
+    return false;
+  }
+}
+
+document.getElementById("btn-add-recorrente").addEventListener("click", () => {
+  criarRecorrente({
+    lancamentoId: document.getElementById("rec-lancamento").value,
+    valor: Number(document.getElementById("rec-valor").value),
+    dataInicio: document.getElementById("rec-inicio").value,
+    diaVencimento: Number(document.getElementById("rec-dia").value),
+    ativo: document.getElementById("rec-ativo").value === "true"
+  });
+});
+
+async function alternarAtivoRecorrente(id, novoAtivo) {
+  try {
+    await updateDoc(doc(db, "recorrentes", id), { ativo: novoAtivo });
+  } catch (err) {
+    mostrarToast("Não foi possível atualizar: " + err.message, true);
+  }
+}
+
+// Substitui o gatilho mensal do Apps Script (não existe "servidor" sem Cloud
+// Functions): qualquer pessoa que abrir o app já dispara essa checagem uma
+// vez, e lança os recorrentes que ainda não saíram este mês.
+async function lancarRecorrentesPendentes(silencioso) {
+  const hoje = new Date();
+  const mesAtual = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`;
+  const pendentes = STATE.recorrentes.filter((r) => r.ativo === true && r.ultimoMesLancado !== mesAtual);
+
+  if (!pendentes.length) {
+    if (!silencioso) mostrarToast("Nenhum custo recorrente pendente este mês.");
+    return;
+  }
+
+  let lancados = 0;
+  for (const r of pendentes) {
+    try {
+      const vencimento = calcularProximoVencimento(r.diaVencimento, hoje);
+      await addDoc(collection(db, "movimentacoes"), {
+        lancamentoId: r.lancamentoId, data: vencimento, valor: Number(r.valor),
+        pago: false, origem: "Recorrente", cartaoId: null, compraParceladaId: null, createdAt: serverTimestamp()
+      });
+      await updateDoc(doc(db, "recorrentes", r.id), { ultimoMesLancado: mesAtual });
+      lancados++;
+    } catch (err) {
+      mostrarToast("Erro ao lançar recorrente: " + err.message, true);
+    }
+  }
+  if (lancados > 0) {
+    mostrarToast(`${lancados} custo(s) recorrente(s) lançado(s)${silencioso ? " automaticamente" : ""} em Movimentações.`);
+  }
+}
+
+document.getElementById("btn-lancar-pendentes").addEventListener("click", () => lancarRecorrentesPendentes(false));
+
+function tentarAutoLancarRecorrentes() {
+  if (jaVerificouRecorrentesPendentes || !recorrentesCarregados) return;
+  jaVerificouRecorrentesPendentes = true;
+  lancarRecorrentesPendentes(true).catch(() => {});
 }
 
 /* ══════════════ PLANOS (metas de economia) ══════════════ */
@@ -1828,6 +2192,23 @@ function iniciarListeners() {
     renderPlanos();
   }, (err) => mostrarToast("Erro ao carregar planos: " + err.message, true));
 
+  onSnapshot(collection(db, "conexoesBancarias"), (snap) => {
+    STATE.conexoesBancarias = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    renderConexoes();
+    renderMovimentacoes();
+    renderDashboard();
+    // Sincroniza cada conexão automaticamente uma vez por sessão (assim que
+    // o app abre), sem precisar clicar em "Sincronizar agora" — a guarda
+    // por Set evita loop, já que a própria sincronização reescreve o
+    // documento e dispara este listener de novo.
+    STATE.conexoesBancarias.forEach((c) => {
+      if (!conexoesAutoSincronizadasNestaSessao.has(c.id)) {
+        conexoesAutoSincronizadasNestaSessao.add(c.id);
+        sincronizarConexao(c.id);
+      }
+    });
+  }, (err) => mostrarToast("Erro ao carregar conexões bancárias: " + err.message, true));
+
   onSnapshot(collection(db, "feriados"), (snap) => {
     STATE.feriados = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     renderRecorrentes();
@@ -1847,11 +2228,9 @@ document.getElementById("mov-data").valueAsDate = new Date();
 document.getElementById("rec-inicio").valueAsDate = new Date();
 document.getElementById("compra-data").valueAsDate = new Date();
 
-const hojeInicial = new Date();
-const mesInicial = `${hojeInicial.getFullYear()}-${String(hojeInicial.getMonth() + 1).padStart(2, "0")}`;
-document.getElementById("mov-filtro-mes-de").value = mesInicial;
-document.getElementById("mov-filtro-mes-ate").value = mesInicial;
-STATE.filtroMovMesDe = mesInicial;
-STATE.filtroMovMesAte = mesInicial;
+// "De"/"Até" começam vazios de propósito (mostra tudo por padrão) — se um
+// deles viesse pré-preenchido com o mês atual, usar só o outro campo
+// filtraria sem querer num intervalo de dois lados em vez de um só.
 
+iniciarBuscaLancamento();
 iniciarListeners();
