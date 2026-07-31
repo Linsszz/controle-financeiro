@@ -1,14 +1,14 @@
-// Financeiro Pamplona — lógica do app. Firestore no lugar do Apps Script:
+// Financeiro Leonardo — lógica do app. Firestore no lugar do Apps Script:
 // onSnapshot mantém tudo em tempo real, sem precisar recarregar a página.
 // Regras de negócio (vencimento em dia útil, cálculo do dashboard, limite do
 // cartão) foram trazidas do Code.gs original e agora rodam aqui no navegador.
 //
 // A única exceção é a integração de Open Finance (Pluggy, aba "Conexões
 // Bancárias") — o clientId/clientSecret da Pluggy NUNCA podem aparecer aqui
-// (este arquivo é público, visível por "ver código-fonte"), então o app.js
-// só fala com um Apps Script mínimo (Code.gs) que guarda esses segredos nas
-// Script Properties e repassa as chamadas pra API da Pluggy. Veja
-// PLUGGY_PROXY_URL em firebase-init.js e a seção "CONEXÕES BANCÁRIAS" abaixo.
+// nem no index.html (arquivos públicos). Por isso existe um Code.gs
+// separado, que guarda esse segredo nas Script Properties dele e repassa as
+// chamadas pra API da Pluggy. Veja PLUGGY_PROXY_URL em firebase-init.js e a
+// seção "CONEXÕES BANCÁRIAS" abaixo.
 
 import { db, PLUGGY_PROXY_URL } from "./firebase-init.js";
 import {
@@ -27,6 +27,8 @@ const STATE = {
   planos: [],
   pessoas: [],
   conexoesBancarias: [],
+  cartoesOpenFinance: [],
+  regrasCategorizacaoOF: [],
   config: { rendaMensal: 0, saldoInicial: 0 },
   filtroMovMesDe: "",
   filtroMovMesAte: "",
@@ -36,14 +38,15 @@ const STATE = {
   filtroMovRevisado: ""
 };
 
-// Evita sincronizar a mesma conexão bancária mais de uma vez por sessão —
-// o listener de conexoesBancarias dispara de novo a cada escrita (inclusive
-// as que a própria sincronização faz), então sem essa guarda viraria loop.
-const conexoesAutoSincronizadasNestaSessao = new Set();
-
 let recorrentesCarregados = false;
 let jaVerificouRecorrentesPendentes = false;
 let lancamentosCarregados = false;
+
+// Evita sincronizar a mesma conexão bancária mais de uma vez por sessão —
+// o listener de conexoesBancarias dispara de novo a cada escrita (inclusive
+// a que a própria sincronização faz), então sem essa guarda ela reentraria
+// em loop.
+const conexoesAutoSincronizadasNestaSessao = new Set();
 
 // Quando o modal "Novo lançamento" é aberto a partir de um campo específico
 // (ex: o select de Movimentações), guardamos aqui pra, depois de salvar,
@@ -120,6 +123,18 @@ function mapaLancamentos() {
   const m = {};
   STATE.lancamentos.forEach((l) => (m[l.id] = l));
   return m;
+}
+
+// Une cartão cadastrado manualmente e cartão descoberto via Open Finance
+// num único formato — "origemCartao" e "nomeExibicao" deixam quem chama
+// tratar os dois sem precisar saber de qual coleção cada um veio.
+function buscarCartaoUnificado(cartaoId) {
+  if (!cartaoId) return null;
+  const manual = STATE.cartoes.find((c) => c.id === cartaoId);
+  if (manual) return { ...manual, origemCartao: "manual", nomeExibicao: manual.nome };
+  const of = STATE.cartoesOpenFinance.find((c) => c.id === cartaoId);
+  if (of) return { ...of, origemCartao: "openFinance", nomeExibicao: `${of.instituicao} — ${of.nome}` };
+  return null;
 }
 
 // "Filtro mestre" das conexões bancárias: cada conexão tem um interruptor
@@ -228,9 +243,7 @@ function calcularDashboard() {
   let saidasPagasMes = 0;
   let parcelasCartaoFuturas = 0;
 
-  const conexoesAtivas = conexoesAtivasParaPessoal();
   STATE.movimentacoes.forEach((m) => {
-    if (!movimentacaoVisivel(m, conexoesAtivas)) return;
     const l = mapaLanc[m.lancamentoId] || {};
     const valor = Number(m.valor) || 0;
     const ehSaida = l.tipo === "Saida";
@@ -330,9 +343,12 @@ function rotuloLancamento(l) {
 // Cada campo "Lançamento" é, por baixo dos panos, um <input type="hidden">
 // com o MESMO id que o <select> antigo tinha — todo o resto do código
 // (leituras de .value, validações) continua funcionando sem mudar nada.
-// O que aparece pra digitar é um <input type="text"> com sufixo "-busca",
-// filtrado por um <datalist>. Esta função escreve nos dois: o hidden (ID)
-// e o texto visível (rótulo), a partir de um lancamentoId.
+// Trocamos de <select> pra busca porque um <select> sem opção em branco
+// sempre deixa ALGUM lançamento pré-selecionado (o primeiro da lista) —
+// fácil de não notar e salvar no lançamento errado sem querer, e ficava
+// mais visível logo depois de usar o botão "+" (a lista reordena e o
+// campo "esquece" o que estava selecionado). Um campo de busca começa
+// vazio de verdade.
 function definirComboLancamento(id, lancamentoId) {
   const hidden = document.getElementById(id);
   const busca = document.getElementById(id + "-busca");
@@ -555,29 +571,31 @@ document.getElementById("mov-filtro-revisado").addEventListener("change", (e) =>
   renderMovimentacoes();
 });
 
-// Separa por tipo (Entrada/Saída) ANTES de separar por pago/não pago — uma
-// entrada não paga é dinheiro a RECEBER, não a pagar (são fluxos opostos,
-// misturar os dois num "a pagar" só não fazia sentido). Segue a mesma regra
-// do calcularDashboard(): só conta como saída quando o tipo é
-// exatamente "Saida"; qualquer outra coisa (Entrada, ou lançamento
-// excluído) cai do lado de "receber".
+// Separado por tipo — uma Entrada não paga é dinheiro A RECEBER, não "a
+// pagar". Misturar as duas coisas num único total não fazia sentido.
 function renderMovKpis(filtradas) {
-  let totalPago = 0, qtdPago = 0, totalRecebido = 0, qtdRecebido = 0;
-  let totalAPagar = 0, qtdAPagar = 0, totalAReceber = 0, qtdAReceber = 0;
+  let pago = 0, qtdPago = 0;
+  let aPagar = 0, qtdAPagar = 0;
+  let recebido = 0, qtdRecebido = 0;
+  let aReceber = 0, qtdAReceber = 0;
+
   filtradas.forEach((m) => {
     const valor = Number(m.valor) || 0;
-    const ehSaida = m.tipo === "Saida";
+    const ehEntrada = m.tipo === "Entrada";
     if (m.pago) {
-      if (ehSaida) { totalPago += valor; qtdPago++; } else { totalRecebido += valor; qtdRecebido++; }
+      if (ehEntrada) { recebido += valor; qtdRecebido++; }
+      else { pago += valor; qtdPago++; }
     } else {
-      if (ehSaida) { totalAPagar += valor; qtdAPagar++; } else { totalAReceber += valor; qtdAReceber++; }
+      if (ehEntrada) { aReceber += valor; qtdAReceber++; }
+      else { aPagar += valor; qtdAPagar++; }
     }
   });
+
   document.getElementById("mov-kpi-grid").innerHTML =
-    kpiCard("Pago no período", moeda(totalPago) + ` <small>(${qtdPago})</small>`, true) +
-    kpiCard("Recebido no período", moeda(totalRecebido) + ` <small>(${qtdRecebido})</small>`, true) +
-    kpiCard("A pagar no período", moeda(totalAPagar) + ` <small>(${qtdAPagar})</small>`, totalAPagar === 0) +
-    kpiCard("A receber no período", moeda(totalAReceber) + ` <small>(${qtdAReceber})</small>`, totalAReceber === 0);
+    kpiCard("Pago no período", moeda(pago) + ` <small>(${qtdPago})</small>`, true) +
+    kpiCard("A pagar no período", moeda(aPagar) + ` <small>(${qtdAPagar})</small>`, aPagar === 0) +
+    kpiCard("Recebido no período", moeda(recebido) + ` <small>(${qtdRecebido})</small>`, true) +
+    kpiCard("A receber no período", moeda(aReceber) + ` <small>(${qtdAReceber})</small>`, true);
 }
 
 function renderMovimentacoes() {
@@ -604,21 +622,30 @@ function renderMovimentacoes() {
   if (!filtradas.length) {
     const temFiltro = STATE.filtroMovMesDe || STATE.filtroMovMesAte || STATE.filtroMovPessoa
       || STATE.filtroMovBanco || STATE.filtroMovTipoConta || STATE.filtroMovRevisado;
-    body.innerHTML = `<tr><td colspan="7" class="empty">${temFiltro ? "Nenhuma movimentação com esse filtro." : "Nenhuma movimentação registrada ainda."}</td></tr>`;
+    body.innerHTML = `<tr><td colspan="8" class="empty">${temFiltro ? "Nenhuma movimentação com esse filtro." : "Nenhuma movimentação registrada ainda."}</td></tr>`;
   } else {
     body.innerHTML = filtradas.map((m) => {
       const aRevisar = m.origem === "Open Finance" && m.revisado !== true;
-      const rotuloBanco = m.instituicao
-        ? `🏦 ${m.instituicao}${m.contaTipo === "cartao" ? " (cartão)" : ""}`
-        : (m.origem === "Open Finance" ? "🏦 Banco não identificado (sincronizado antes do rastreamento por banco)" : "");
+      const ehPrevisao = m.previsao === true;
+      // Mostra o banco tanto pra transação já confirmada (origem "Open
+      // Finance") quanto pra compra parcelada lançada à mão num cartão
+      // Open Finance (que só tem "instituicao" preenchido, sem ainda ter
+      // vindo do banco de verdade).
+      const colunaBanco = (m.origem === "Open Finance" || m.instituicao)
+        ? esc(m.instituicao || "não identificado") + (m.contaTipo === "cartao" ? '<span class="sublabel">cartão</span>' : "")
+        : "—";
+      const rotuloParcela = m.parcelaAtual
+        ? `Parcela ${m.parcelaAtual}${m.parcelaTotal ? "/" + m.parcelaTotal : ""}${m.valorTotalCompra ? ` (total ${moeda(m.valorTotalCompra)})` : ""}`
+        : "";
       const sublabels = [
         m.descricaoCompra,
-        rotuloBanco,
+        rotuloParcela,
         m.descricaoOrigem
       ].filter(Boolean).map((s) => `<span class="sublabel">${esc(s)}</span>`).join("");
       return (
         `<tr class="linha-clicavel" data-abrir-mov="${m.id}">` +
-        `<td>${dataBR(m.data)}</td><td>${esc(m.nomeLancamento)}${aRevisar ? ' <span class="stamp revisar">A REVISAR</span>' : ""}${sublabels}</td>` +
+        `<td>${dataBR(m.data)}</td><td>${esc(m.nomeLancamento)}${aRevisar ? ' <span class="stamp revisar">A REVISAR</span>' : ""}${ehPrevisao ? ' <span class="stamp reconexao">PREVISÃO</span>' : ""}${sublabels}</td>` +
+        `<td>${colunaBanco}</td>` +
         `<td><span class="badge-tipo ${m.tipo}">${m.tipo === "Entrada" ? "Entrada" : (m.tipo ? "Saída" : "")}</span></td>` +
         `<td>${esc(m.categoria)}</td><td>${esc(m.responsavel || "")}</td><td class="num">${moeda(m.valor)}</td>` +
         `<td><span class="stamp ${m.pago ? "pago" : "pendente"}" data-alternar-pagamento="${m.id}" data-novo-pago="${!m.pago}">${m.pago ? "PAGO" : "PENDENTE"}</span></td></tr>`
@@ -775,13 +802,20 @@ document.getElementById("btn-excluir-cartao").addEventListener("click", async ()
 });
 
 function preencherSelectCartoes() {
-  const opcoes = STATE.cartoes.map((c) => {
+  const opcoesManuais = STATE.cartoes.map((c) => {
     const disponivel = (Number(c.limiteTotal) || 0) - calcularLimiteUtilizado(c.id);
     return `<option value="${c.id}">${esc(c.nome)} (disponível ${moeda(disponivel)})</option>`;
   }).join("");
+  // Cartões via Open Finance também aparecem aqui — "disponível" vem direto
+  // do banco (limiteDisponivel), não é calculado somando movimentações
+  // como no cadastro manual.
+  const opcoesOpenFinance = STATE.cartoesOpenFinance.map((c) => (
+    `<option value="${c.id}">🏦 ${esc(c.instituicao)} — ${esc(c.nome)} (disponível ${moeda(c.limiteDisponivel)})</option>`
+  )).join("");
+  const opcoes = opcoesManuais + opcoesOpenFinance;
   ["compra-cartao", "edit-compra-cartao", "qa-compra-cartao"].forEach((id) => {
     const sel = document.getElementById(id);
-    if (!STATE.cartoes.length) {
+    if (!STATE.cartoes.length && !STATE.cartoesOpenFinance.length) {
       sel.innerHTML = '<option value="">Cadastre um cartão primeiro</option>';
       return;
     }
@@ -798,12 +832,14 @@ function preencherSelectCartoes() {
 function renderParcelasCartao() {
   const body = document.getElementById("parcelas-cartao-body");
   if (!body) return;
-  const mapaCartao = {};
-  STATE.cartoes.forEach((c) => (mapaCartao[c.id] = c));
   const mapaCompra = {};
   STATE.comprasParceladas.forEach((c) => (mapaCompra[c.id] = c));
 
-  const parcelas = STATE.movimentacoes.filter((m) => m.cartaoId);
+  // Cartão manual: linkado por cartaoId. Cartão Open Finance real (já
+  // sincronizado do banco): não tem cartaoId, é identificado por
+  // contaTipo "cartao" + conexaoId. As duas formas aparecem juntas aqui,
+  // pra dar visão completa do que está ocupando o limite de cada cartão.
+  const parcelas = STATE.movimentacoes.filter((m) => m.cartaoId || (m.contaTipo === "cartao" && m.conexaoId));
   if (!parcelas.length) {
     body.innerHTML = '<tr><td colspan="6" class="empty">Nenhum gasto lançado no cartão ainda.</td></tr>';
     return;
@@ -811,8 +847,10 @@ function renderParcelasCartao() {
   const ordenadas = [...parcelas].sort((a, b) => (a.data < b.data ? 1 : -1));
   body.innerHTML = ordenadas.map((m) => {
     const compra = mapaCompra[m.compraParceladaId];
-    const descricao = compra ? compra.descricao : "(compra excluída)";
-    const cartaoNome = (mapaCartao[m.cartaoId] || {}).nome || "(excluído)";
+    const descricao = compra ? compra.descricao : (m.descricaoOrigem || "(compra excluída)");
+    const cartaoNome = m.cartaoId
+      ? ((buscarCartaoUnificado(m.cartaoId) || {}).nomeExibicao || "(excluído)")
+      : `${m.instituicao || "Banco"} (Open Finance)`;
     return (
       `<tr class="linha-clicavel" data-abrir-mov="${m.id}"><td>${dataBR(m.data)}</td><td>${esc(descricao)}</td>` +
       `<td>${esc(cartaoNome)}</td><td>${esc(m.responsavel || "")}</td><td class="num">${moeda(m.valor)}</td>` +
@@ -834,9 +872,6 @@ function renderParcelasCartao() {
 }
 
 function renderComprasParceladas() {
-  const mapaCartao = {};
-  STATE.cartoes.forEach((c) => (mapaCartao[c.id] = c));
-
   const body = document.getElementById("compras-body");
   if (!STATE.comprasParceladas.length) {
     body.innerHTML = '<tr><td colspan="7" class="empty">Nenhuma compra parcelada registrada ainda.</td></tr>';
@@ -853,7 +888,7 @@ function renderComprasParceladas() {
     const valorTotal = Number(c.valorTotal) || 0;
     const valorParcela = arredondar2(valorTotal / numParcelas);
     return (
-      `<tr class="linha-clicavel" data-abrir-compra="${c.id}"><td>${esc(c.descricao)}</td><td>${esc((mapaCartao[c.cartaoId] || {}).nome || "(excluído)")}</td><td>${esc(c.responsavel || "")}</td>` +
+      `<tr class="linha-clicavel" data-abrir-compra="${c.id}"><td>${esc(c.descricao)}</td><td>${esc((buscarCartaoUnificado(c.cartaoId) || {}).nomeExibicao || "(excluído)")}</td><td>${esc(c.responsavel || "")}</td>` +
       `<td class="num">${moeda(valorTotal)}</td><td>${numParcelas}x</td>` +
       `<td class="num">${moeda(valorParcela)}</td><td>${dataBR(c.dataCompra)}</td></tr>`
     );
@@ -881,13 +916,20 @@ function abrirModalEditarCompra(id) {
   const numParcelas = Number(c.numParcelas) || 1;
   const naoPagas = STATE.movimentacoes.filter((m) => m.compraParceladaId === id && m.pago !== true);
   const paidCount = numParcelas - naoPagas.length;
-  const travar = !naoPagas.length;
+  const cartaoAtual = buscarCartaoUnificado(c.cartaoId);
+  const ehCartaoOpenFinance = cartaoAtual && cartaoAtual.origemCartao === "openFinance";
+  // Recalcular cronograma (dia de fechamento, limite) só existe pro
+  // cadastro manual — cartão Open Finance trava esses campos sempre, não
+  // só quando já paga tudo.
+  const travar = !naoPagas.length || ehCartaoOpenFinance;
   ["edit-compra-cartao", "edit-compra-valor", "edit-compra-parcelas", "edit-compra-data"].forEach((elId) => {
     document.getElementById(elId).disabled = travar;
   });
-  document.getElementById("edit-compra-info").textContent = travar
-    ? "Todas as parcelas dessa compra já foram pagas — só descrição, lançamento e responsável ainda podem ser alterados."
-    : `${paidCount} de ${numParcelas} parcela(s) já paga(s). Mudar cartão, valor, nº de parcelas ou data recalcula automaticamente só as ${naoPagas.length} parcela(s) ainda não paga(s) — as pagas não são tocadas.`;
+  document.getElementById("edit-compra-info").textContent = ehCartaoOpenFinance
+    ? "Cartão via Open Finance — cartão, valor, parcelas e data não são editáveis aqui (esses dados vêm do banco). Só descrição, lançamento e responsável podem ser alterados."
+    : (travar
+      ? "Todas as parcelas dessa compra já foram pagas — só descrição, lançamento e responsável ainda podem ser alterados."
+      : `${paidCount} de ${numParcelas} parcela(s) já paga(s). Mudar cartão, valor, nº de parcelas ou data recalcula automaticamente só as ${naoPagas.length} parcela(s) ainda não paga(s) — as pagas não são tocadas.`);
   document.getElementById("modal-editar-compra").classList.add("active");
 }
 function fecharModalEditarCompra() {
@@ -917,8 +959,14 @@ async function salvarEdicaoCompra(forcarRecalculo) {
 
   const atual = STATE.comprasParceladas.find((x) => x.id === id);
   if (!atual) return mostrarToast("Compra não encontrada.", true);
-  const cartao = STATE.cartoes.find((c) => c.id === cartaoId);
+  const cartao = buscarCartaoUnificado(cartaoId);
   if (!cartao) return mostrarToast("Cartão não encontrado.", true);
+  if (cartao.origemCartao === "openFinance") {
+    if (forcarRecalculo) return mostrarToast("Cartão via Open Finance não tem cronograma pra recalcular — quem controla isso é o próprio banco.", true);
+    // Cartão/valor/parcelas/data ficam desabilitados na tela pra esse caso,
+    // então só descrição/lançamento/responsável mudam — segue direto pro
+    // caminho "não afeta cronograma" mais abaixo.
+  }
 
   const parcelas = STATE.movimentacoes.filter((m) => m.compraParceladaId === id);
   const pagas = [...parcelas.filter((m) => m.pago === true)].sort((a, b) => (a.data < b.data ? -1 : 1));
@@ -1080,200 +1128,6 @@ document.getElementById("btn-excluir-compra").addEventListener("click", async ()
     mostrarToast("Não foi possível excluir: " + err.message, true);
   }
 });
-
-/* ══════════════ CONEXÕES BANCÁRIAS (Open Finance via Pluggy — só leitura) ══════════════
- *
- * Escopo desta integração: importar transações/saldos do banco PRA DENTRO
- * do app, como movimentações normais. Não existe (e não deve ser criado)
- * nenhum caminho de código aqui que iniciе pagamento, transferência, PIX ou
- * qualquer outra ação que mexa em dinheiro de verdade — é leitura, ponto.
- *
- * O app.js nunca guarda nem vê clientId/clientSecret da Pluggy: ele só
- * conversa com o Code.gs (Apps Script Web App, URL em PLUGGY_PROXY_URL),
- * que é quem tem as credenciais (Script Properties) e fala com a API da
- * Pluggy. O widget "Pluggy Connect" (carregado no index.html) é quem
- * mostra a tela de login do banco — dentro do iframe controlado pela
- * própria Pluggy, este app nunca vê usuário/senha do banco.
- */
-
-// Chama o proxy (Code.gs) com uma ação e devolve a resposta já validada.
-async function chamarProxyPluggy(body) {
-  if (!PLUGGY_PROXY_URL || PLUGGY_PROXY_URL.startsWith("COLE_AQUI")) {
-    throw new Error("Configure PLUGGY_PROXY_URL em firebase-init.js primeiro (veja o README).");
-  }
-  const resp = await fetch(PLUGGY_PROXY_URL, {
-    method: "POST",
-    body: JSON.stringify(body)
-  }).then((r) => r.json());
-  if (!resp || resp.ok === false) {
-    throw new Error((resp && resp.erro) || "Erro na integração bancária.");
-  }
-  return resp;
-}
-
-function renderConexoes() {
-  const grid = document.getElementById("conexoes-grid");
-  if (!grid) return;
-  if (!STATE.conexoesBancarias.length) {
-    grid.innerHTML = '<div class="empty">Nenhum banco conectado ainda. Clique em "+ Conectar novo banco" pra começar.</div>';
-    return;
-  }
-  const ordenadas = [...STATE.conexoesBancarias].sort((a, b) => tsParaMillis(b.createdAt) - tsParaMillis(a.createdAt));
-  grid.innerHTML = ordenadas.map((c) => {
-    const statusClasse = c.status === "conectado" ? "conectado" : (c.status === "reconexao_necessaria" ? "reconexao" : "erro");
-    const statusTexto = c.status === "conectado" ? "CONECTADO" : (c.status === "reconexao_necessaria" ? "RECONEXÃO NECESSÁRIA" : "ERRO");
-    const ultimaSinc = c.ultimaSincronizacao ? fmtDataHora(c.ultimaSincronizacao) : "nunca sincronizado";
-    const incluido = c.ativoParaPessoal !== false;
-    return (
-      `<div class="conexao-card${incluido ? "" : " conexao-oculta"}">` +
-      `<div class="conexao-topo"><h3>${esc(c.instituicao || "Banco")}</h3><span class="stamp ${statusClasse}">${statusTexto}</span></div>` +
-      `<div class="conexao-info">Última sincronização: ${esc(ultimaSinc)}</div>` +
-      `<label class="conexao-toggle"><input type="checkbox" data-alternar-inclusao-pessoal="${c.id}" data-novo-valor="${!incluido}" ${incluido ? "checked" : ""}> Incluir no uso pessoal (Dashboard e Movimentações)</label>` +
-      `<button class="btn btn-primary" data-sincronizar-conexao="${c.id}">🔄 Sincronizar agora</button>` +
-      `</div>`
-    );
-  }).join("");
-  grid.querySelectorAll("[data-sincronizar-conexao]").forEach((btn) => {
-    btn.addEventListener("click", () => sincronizarConexao(btn.dataset.sincronizarConexao));
-  });
-  grid.querySelectorAll("[data-alternar-inclusao-pessoal]").forEach((chk) => {
-    chk.addEventListener("change", async () => {
-      try {
-        await updateDoc(doc(db, "conexoesBancarias", chk.dataset.alternarInclusaoPessoal), { ativoParaPessoal: chk.dataset.novoValor === "true" });
-      } catch (err) {
-        mostrarToast("Não foi possível salvar: " + err.message, true);
-      }
-    });
-  });
-}
-
-// Garante que existe um lançamento genérico "Importado do banco" pro tipo
-// pedido (Entrada ou Saída) — reaproveita se já existe um com esse nome E
-// esse tipo, senão cria. É pra onde vão transações importadas sem categoria
-// própria; o usuário edita a movimentação normalmente depois pra recategorizar.
-async function garantirLancamentoImportado(tipo) {
-  const nome = "Importado do banco";
-  const existente = STATE.lancamentos.find((l) => l.nome === nome && l.tipo === tipo);
-  if (existente) return existente.id;
-  const ref = await addDoc(collection(db, "lancamentos"), {
-    nome, tipo, categoria: "Open Finance (a revisar)", createdAt: serverTimestamp()
-  });
-  return ref.id;
-}
-
-// Busca contas + transações (últimos 90 dias) de uma conexão, ignora o que
-// já foi importado antes (dedupe por pluggyTransactionId) e grava o resto
-// em lote como movimentações normais.
-async function sincronizarConexao(conexaoId) {
-  const conexao = STATE.conexoesBancarias.find((c) => c.id === conexaoId);
-  if (!conexao) return mostrarToast("Conexão não encontrada.", true);
-  try {
-    mostrarToast(`Sincronizando ${conexao.instituicao || "banco"}...`);
-
-    const respContas = await chamarProxyPluggy({ action: "listAccounts", itemId: conexao.itemId });
-    const contas = respContas.accounts || [];
-    if (!contas.length) {
-      await updateDoc(doc(db, "conexoesBancarias", conexaoId), { ultimaSincronizacao: serverTimestamp(), status: "conectado" });
-      mostrarToast("Nenhuma conta encontrada nesta conexão.");
-      return;
-    }
-
-    const hoje = new Date();
-    const de = new Date(hoje);
-    de.setDate(de.getDate() - 90);
-    const dataDe = formatarDataISO(de);
-    const dataAte = formatarDataISO(hoje);
-
-    // "cartao" vem do type "CREDIT" que a Pluggy devolve pra cartão de
-    // crédito — é só uma etiqueta pra filtrar em Movimentações, não tem
-    // nenhuma relação com o cadastro manual de cartões (fatura, parcelas
-    // etc.) — são dois jeitos independentes de registrar gasto no cartão.
-    let todasTransacoes = [];
-    for (const conta of contas) {
-      const contaTipo = conta.type === "CREDIT" ? "cartao" : "banco";
-      const respTrans = await chamarProxyPluggy({ action: "listTransactions", accountId: conta.id, from: dataDe, to: dataAte });
-      (respTrans.transactions || []).forEach((t) => { t._contaTipo = contaTipo; });
-      todasTransacoes = todasTransacoes.concat(respTrans.transactions || []);
-    }
-
-    const jaImportadas = new Set(STATE.movimentacoes.map((m) => m.pluggyTransactionId).filter(Boolean));
-    const novas = todasTransacoes.filter((t) => t.id && !jaImportadas.has(t.id));
-
-    if (!novas.length) {
-      await updateDoc(doc(db, "conexoesBancarias", conexaoId), { ultimaSincronizacao: serverTimestamp(), status: "conectado" });
-      mostrarToast("Tudo em dia — nenhuma transação nova.");
-      return;
-    }
-
-    // Cria (ou reaproveita) os lançamentos genéricos ANTES do lote, pra já
-    // ter o ID deles na hora de gravar as movimentações.
-    const lancEntradaId = await garantirLancamentoImportado("Entrada");
-    const lancSaidaId = await garantirLancamentoImportado("Saida");
-
-    const batch = writeBatch(db);
-    novas.forEach((t) => {
-      const valor = Number(t.amount) || 0;
-      const tipo = valor < 0 ? "Saida" : "Entrada";
-      const lancamentoId = tipo === "Saida" ? lancSaidaId : lancEntradaId;
-      const movRef = doc(collection(db, "movimentacoes"));
-      // Transação já aconteceu no extrato do banco, então entra como "paga"
-      // — é histórico, não uma previsão.
-      batch.set(movRef, {
-        lancamentoId, data: String(t.date || dataAte).slice(0, 10), valor: Math.abs(arredondar2(valor)), pago: true,
-        responsavel: "", origem: "Open Finance", cartaoId: null, compraParceladaId: null,
-        pluggyTransactionId: t.id, conexaoId: conexaoId, instituicao: conexao.instituicao || "Banco",
-        contaTipo: t._contaTipo || "banco", revisado: false, descricaoOrigem: t.description || t.descriptionRaw || "",
-        createdAt: serverTimestamp()
-      });
-    });
-    batch.update(doc(db, "conexoesBancarias", conexaoId), { ultimaSincronizacao: serverTimestamp(), status: "conectado" });
-    await batch.commit();
-    mostrarToast(`${novas.length} transação(ões) importada(s) de ${conexao.instituicao || "banco"}. Recategorize em Movimentações se quiser.`);
-  } catch (err) {
-    mostrarToast("Não foi possível sincronizar: " + err.message, true);
-    try { await updateDoc(doc(db, "conexoesBancarias", conexaoId), { status: "erro" }); } catch (err2) { /* ignora falha secundária */ }
-  }
-}
-
-const btnConectarBanco = document.getElementById("btn-conectar-banco");
-if (btnConectarBanco) {
-  btnConectarBanco.addEventListener("click", async () => {
-    try {
-      const resp = await chamarProxyPluggy({ action: "connectToken" });
-      if (!resp.connectToken) throw new Error("Token de conexão não recebido.");
-      if (typeof window.PluggyConnect === "undefined") {
-        throw new Error("Widget da Pluggy Connect não carregou — confira o <script> no index.html.");
-      }
-      const pluggyConnect = new window.PluggyConnect({
-        connectToken: resp.connectToken,
-        // Sandbox da Pluggy (plano gratuito) só conecta a bancos de teste —
-        // troque pra false só depois de migrar pra uma conta de produção
-        // (veja o README, seção "Conexões Bancárias").
-        includeSandbox: true,
-        onSuccess: async (itemData) => {
-          try {
-            const item = (itemData && itemData.item) || {};
-            const instituicao = (item.connector && item.connector.name) || "Banco conectado";
-            const ref = await addDoc(collection(db, "conexoesBancarias"), {
-              itemId: item.id, instituicao, status: "conectado", ultimaSincronizacao: null,
-              ativoParaPessoal: true, createdAt: serverTimestamp()
-            });
-            mostrarToast("Banco conectado! Importando as transações...");
-            await sincronizarConexao(ref.id);
-          } catch (err) {
-            mostrarToast("Banco conectado, mas não foi possível salvar a conexão: " + err.message, true);
-          }
-        },
-        onError: () => mostrarToast("Não foi possível conectar o banco. Tente novamente.", true)
-      });
-      pluggyConnect.init();
-    } catch (err) {
-      mostrarToast("Não foi possível iniciar a conexão bancária: " + err.message, true);
-    }
-  });
-}
-
-/* ══════════════ CUSTOS RECORRENTES ══════════════ */
 
 function renderRecKpis() {
   const ativos = STATE.recorrentes.filter((r) => r.ativo === true);
@@ -1522,9 +1376,16 @@ function abrirModalMovimentacao(id) {
 
   const infoEl = document.getElementById("edit-mov-info");
   if (mov.origem === "Open Finance") {
-    const partes = [`Importada do banco ${mov.instituicao || ""}`.trim()];
-    if (mov.descricaoOrigem) partes.push(`descrição original: "${mov.descricaoOrigem}"`);
-    partes.push(mov.revisado === true ? "já revisada." : "escolha o lançamento certo abaixo pra dizer do que se trata.");
+    const partes = [mov.previsao === true
+      ? `Previsão de parcela futura (${mov.instituicao || "banco"}) — ainda não aconteceu de verdade`
+      : `Importada do banco ${mov.instituicao || ""}`.trim()];
+    if (mov.descricaoOrigem) partes.push(`descrição${mov.previsao === true ? " estimada" : " original"}: "${mov.descricaoOrigem}"`);
+    if (mov.parcelaAtual) partes.push(`parcela ${mov.parcelaAtual}${mov.parcelaTotal ? "/" + mov.parcelaTotal : ""}`);
+    if (mov.previsao === true) {
+      partes.push("quando essa parcela realmente cair no banco, o sistema atualiza esta linha sozinho — não precisa apagar.");
+    } else {
+      partes.push(mov.revisado === true ? "já revisada." : "escolha o lançamento certo abaixo pra dizer do que se trata (a próxima transação parecida já entra categorizada sozinha).");
+    }
     infoEl.textContent = partes.join(" — ");
     infoEl.classList.remove("hidden");
   } else {
@@ -1590,6 +1451,13 @@ document.getElementById("btn-salvar-edicao-mov").addEventListener("click", async
         valorAnterior: String(a.antes), valorNovo: String(a.depois),
         tipoAlteracao: "Edição de movimentação", dataHora: serverTimestamp()
       });
+    }
+    // Se veio do Open Finance e o lançamento mudou, "aprende" a regra: da
+    // próxima vez que cair uma transação com essa mesma chave (CNPJ do
+    // estabelecimento, ou descrição quando não tem CNPJ), já entra
+    // categorizada sozinha.
+    if (atual.origem === "Open Finance" && atual.chaveCategorizador && atual.lancamentoId !== lancamentoId) {
+      await garantirRegraCategorizacao(atual.chaveCategorizador, lancamentoId, atual.descricaoOrigem);
     }
     mostrarToast(`Movimentação atualizada (${alteracoes.length} campo(s) alterado(s)).`);
     fecharModalMovimentacao();
@@ -1708,6 +1576,81 @@ document.getElementById("btn-add-compra").addEventListener("click", async () => 
   }
 });
 
+/* ══════════════ CUSTOS RECORRENTES ══════════════ */
+
+// Usada tanto pelo formulário da aba Custos Recorrentes quanto pelo modal
+// de Ação Rápida.
+async function criarRecorrente({ lancamentoId, valor, dataInicio, diaVencimento, ativo }) {
+  if (!lancamentoId) { mostrarToast("Cadastre um lançamento primeiro.", true); return false; }
+  if (!valor || !dataInicio || !diaVencimento) { mostrarToast("Preencha valor, data de início e dia de vencimento.", true); return false; }
+  try {
+    await addDoc(collection(db, "recorrentes"), { lancamentoId, valor, dataInicio, diaVencimento, ativo, ultimoMesLancado: "", createdAt: serverTimestamp() });
+    mostrarToast("Custo recorrente cadastrado!");
+    return true;
+  } catch (err) {
+    mostrarToast("Não foi possível salvar: " + err.message, true);
+    return false;
+  }
+}
+
+document.getElementById("btn-add-recorrente").addEventListener("click", () => {
+  criarRecorrente({
+    lancamentoId: document.getElementById("rec-lancamento").value,
+    valor: Number(document.getElementById("rec-valor").value),
+    dataInicio: document.getElementById("rec-inicio").value,
+    diaVencimento: Number(document.getElementById("rec-dia").value),
+    ativo: document.getElementById("rec-ativo").value === "true"
+  });
+});
+
+async function alternarAtivoRecorrente(id, novoAtivo) {
+  try {
+    await updateDoc(doc(db, "recorrentes", id), { ativo: novoAtivo });
+  } catch (err) {
+    mostrarToast("Não foi possível atualizar: " + err.message, true);
+  }
+}
+
+// Substitui o gatilho mensal do Apps Script (não existe "servidor" sem Cloud
+// Functions): qualquer pessoa que abrir o app já dispara essa checagem uma
+// vez, e lança os recorrentes que ainda não saíram este mês.
+async function lancarRecorrentesPendentes(silencioso) {
+  const hoje = new Date();
+  const mesAtual = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`;
+  const pendentes = STATE.recorrentes.filter((r) => r.ativo === true && r.ultimoMesLancado !== mesAtual);
+
+  if (!pendentes.length) {
+    if (!silencioso) mostrarToast("Nenhum custo recorrente pendente este mês.");
+    return;
+  }
+
+  let lancados = 0;
+  for (const r of pendentes) {
+    try {
+      const vencimento = calcularProximoVencimento(r.diaVencimento, hoje);
+      await addDoc(collection(db, "movimentacoes"), {
+        lancamentoId: r.lancamentoId, data: vencimento, valor: Number(r.valor),
+        pago: false, origem: "Recorrente", cartaoId: null, compraParceladaId: null, createdAt: serverTimestamp()
+      });
+      await updateDoc(doc(db, "recorrentes", r.id), { ultimoMesLancado: mesAtual });
+      lancados++;
+    } catch (err) {
+      mostrarToast("Erro ao lançar recorrente: " + err.message, true);
+    }
+  }
+  if (lancados > 0) {
+    mostrarToast(`${lancados} custo(s) recorrente(s) lançado(s)${silencioso ? " automaticamente" : ""} em Movimentações.`);
+  }
+}
+
+document.getElementById("btn-lancar-pendentes").addEventListener("click", () => lancarRecorrentesPendentes(false));
+
+function tentarAutoLancarRecorrentes() {
+  if (jaVerificouRecorrentesPendentes || !recorrentesCarregados) return;
+  jaVerificouRecorrentesPendentes = true;
+  lancarRecorrentesPendentes(true).catch(() => {});
+}
+
 /* ══════════════ AÇÃO RÁPIDA (botão + na barra inferior) ══════════════ */
 
 document.querySelectorAll("#qa-tabs .qa-tab").forEach((btn) => {
@@ -1794,87 +1737,12 @@ document.getElementById("btn-salvar-acao-rapida").addEventListener("click", asyn
 // que é exatamente o que "só ao entrar, não ao atualizar" pede. Só dispara
 // depois que os lançamentos carregarem pelo menos uma vez, senão o modal
 // abriria com os selects vazios.
-const CHAVE_SESSAO_ACAO_RAPIDA = "finpamplona_acao_rapida_sessao";
+const CHAVE_SESSAO_ACAO_RAPIDA = "finleo_acao_rapida_sessao";
 function tentarAbrirAcaoRapidaAutomatica() {
   if (!lancamentosCarregados) return;
   if (sessionStorage.getItem(CHAVE_SESSAO_ACAO_RAPIDA)) return;
   sessionStorage.setItem(CHAVE_SESSAO_ACAO_RAPIDA, "1");
   abrirModalAcaoRapida();
-}
-
-/* ══════════════ CUSTOS RECORRENTES: criação e checagem automática ══════════════ */
-
-// Usada tanto pelo formulário da aba Custos Recorrentes quanto pelo modal
-// de Ação Rápida.
-async function criarRecorrente({ lancamentoId, valor, dataInicio, diaVencimento, ativo }) {
-  if (!lancamentoId) { mostrarToast("Cadastre um lançamento primeiro.", true); return false; }
-  if (!valor || !dataInicio || !diaVencimento) { mostrarToast("Preencha valor, data de início e dia de vencimento.", true); return false; }
-  try {
-    await addDoc(collection(db, "recorrentes"), { lancamentoId, valor, dataInicio, diaVencimento, ativo, ultimoMesLancado: "", createdAt: serverTimestamp() });
-    mostrarToast("Custo recorrente cadastrado!");
-    return true;
-  } catch (err) {
-    mostrarToast("Não foi possível salvar: " + err.message, true);
-    return false;
-  }
-}
-
-document.getElementById("btn-add-recorrente").addEventListener("click", () => {
-  criarRecorrente({
-    lancamentoId: document.getElementById("rec-lancamento").value,
-    valor: Number(document.getElementById("rec-valor").value),
-    dataInicio: document.getElementById("rec-inicio").value,
-    diaVencimento: Number(document.getElementById("rec-dia").value),
-    ativo: document.getElementById("rec-ativo").value === "true"
-  });
-});
-
-async function alternarAtivoRecorrente(id, novoAtivo) {
-  try {
-    await updateDoc(doc(db, "recorrentes", id), { ativo: novoAtivo });
-  } catch (err) {
-    mostrarToast("Não foi possível atualizar: " + err.message, true);
-  }
-}
-
-// Substitui o gatilho mensal do Apps Script (não existe "servidor" sem Cloud
-// Functions): qualquer pessoa que abrir o app já dispara essa checagem uma
-// vez, e lança os recorrentes que ainda não saíram este mês.
-async function lancarRecorrentesPendentes(silencioso) {
-  const hoje = new Date();
-  const mesAtual = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`;
-  const pendentes = STATE.recorrentes.filter((r) => r.ativo === true && r.ultimoMesLancado !== mesAtual);
-
-  if (!pendentes.length) {
-    if (!silencioso) mostrarToast("Nenhum custo recorrente pendente este mês.");
-    return;
-  }
-
-  let lancados = 0;
-  for (const r of pendentes) {
-    try {
-      const vencimento = calcularProximoVencimento(r.diaVencimento, hoje);
-      await addDoc(collection(db, "movimentacoes"), {
-        lancamentoId: r.lancamentoId, data: vencimento, valor: Number(r.valor),
-        pago: false, origem: "Recorrente", cartaoId: null, compraParceladaId: null, createdAt: serverTimestamp()
-      });
-      await updateDoc(doc(db, "recorrentes", r.id), { ultimoMesLancado: mesAtual });
-      lancados++;
-    } catch (err) {
-      mostrarToast("Erro ao lançar recorrente: " + err.message, true);
-    }
-  }
-  if (lancados > 0) {
-    mostrarToast(`${lancados} custo(s) recorrente(s) lançado(s)${silencioso ? " automaticamente" : ""} em Movimentações.`);
-  }
-}
-
-document.getElementById("btn-lancar-pendentes").addEventListener("click", () => lancarRecorrentesPendentes(false));
-
-function tentarAutoLancarRecorrentes() {
-  if (jaVerificouRecorrentesPendentes || !recorrentesCarregados) return;
-  jaVerificouRecorrentesPendentes = true;
-  lancarRecorrentesPendentes(true).catch(() => {});
 }
 
 /* ══════════════ PLANOS (metas de economia) ══════════════ */
@@ -2127,6 +1995,477 @@ document.getElementById("btn-salvar-aporte").addEventListener("click", async () 
   }
 });
 
+/* ══════════════ CONEXÕES BANCÁRIAS (Open Finance via Pluggy — só leitura) ══════════════
+ *
+ * Escopo desta integração: importar transações/saldos do banco PRA DENTRO
+ * do app, como movimentações normais. Não existe (e não deve ser criado)
+ * nenhum caminho de código aqui que inicie pagamento, transferência, PIX ou
+ * qualquer outra ação que mexa em dinheiro de verdade — é leitura, ponto.
+ *
+ * O app.js nunca guarda nem vê clientId/clientSecret da Pluggy: ele só
+ * conversa com o Code.gs (Apps Script Web App, URL em PLUGGY_PROXY_URL),
+ * que é quem tem as credenciais (Script Properties) e fala com a API da
+ * Pluggy. O widget "Pluggy Connect" (carregado no index.html) é quem
+ * mostra a tela de login do banco — dentro do iframe controlado pela
+ * própria Pluggy, este app nunca vê usuário/senha do banco.
+ */
+
+// Chama o proxy (Code.gs) com uma ação e devolve a resposta já validada.
+async function chamarProxyPluggy(body) {
+  if (!PLUGGY_PROXY_URL || PLUGGY_PROXY_URL.startsWith("COLE_AQUI")) {
+    throw new Error("Configure PLUGGY_PROXY_URL em firebase-init.js primeiro (veja o README).");
+  }
+  const resp = await fetch(PLUGGY_PROXY_URL, {
+    method: "POST",
+    body: JSON.stringify(body)
+  }).then((r) => r.json());
+  if (!resp || resp.ok === false) {
+    throw new Error((resp && resp.erro) || "Erro na integração bancária.");
+  }
+  return resp;
+}
+
+function renderConexoes() {
+  const grid = document.getElementById("conexoes-grid");
+  if (!grid) return;
+  if (!STATE.conexoesBancarias.length) {
+    grid.innerHTML = '<div class="empty">Nenhum banco conectado ainda. Clique em "+ Conectar novo banco" pra começar.</div>';
+    return;
+  }
+  const ordenadas = [...STATE.conexoesBancarias].sort((a, b) => tsParaMillis(b.createdAt) - tsParaMillis(a.createdAt));
+  grid.innerHTML = ordenadas.map((c) => {
+    const statusClasse = c.status === "conectado" ? "conectado" : (c.status === "reconexao_necessaria" ? "reconexao" : "erro");
+    const statusTexto = c.status === "conectado" ? "CONECTADO" : (c.status === "reconexao_necessaria" ? "RECONEXÃO NECESSÁRIA" : "ERRO");
+    const ultimaSinc = c.ultimaSincronizacao ? fmtDataHora(c.ultimaSincronizacao) : "nunca sincronizado";
+    const incluido = c.ativoParaPessoal !== false;
+    return (
+      `<div class="conexao-card${incluido ? "" : " conexao-oculta"}">` +
+      `<div class="conexao-topo"><h3>${esc(c.instituicao || "Banco")}</h3><span class="stamp ${statusClasse}">${statusTexto}</span></div>` +
+      `<div class="conexao-info">Última sincronização: ${esc(ultimaSinc)}</div>` +
+      `<label class="conexao-toggle"><input type="checkbox" data-alternar-inclusao-pessoal="${c.id}" data-novo-valor="${!incluido}" ${incluido ? "checked" : ""}> Incluir no uso pessoal (Dashboard e Movimentações)</label>` +
+      `<button class="btn btn-primary" data-sincronizar-conexao="${c.id}">🔄 Sincronizar agora</button>` +
+      `</div>`
+    );
+  }).join("");
+  grid.querySelectorAll("[data-sincronizar-conexao]").forEach((btn) => {
+    btn.addEventListener("click", () => sincronizarConexao(btn.dataset.sincronizarConexao));
+  });
+  grid.querySelectorAll("[data-alternar-inclusao-pessoal]").forEach((chk) => {
+    chk.addEventListener("change", async () => {
+      try {
+        await updateDoc(doc(db, "conexoesBancarias", chk.dataset.alternarInclusaoPessoal), { ativoParaPessoal: chk.dataset.novoValor === "true" });
+      } catch (err) {
+        mostrarToast("Não foi possível salvar: " + err.message, true);
+      }
+    });
+  });
+}
+
+// Cartões descobertos via Open Finance — só leitura (espelho do que o banco
+// reporta a cada sincronização). Diferente do cadastro manual de cartões
+// (aba "Cartão de Crédito" acima), aqui não existe dia de
+// fechamento/vencimento fixo escolhido pelo usuário nem controle de
+// parcelas feito pelo app — quem calcula tudo isso é o próprio banco.
+function renderCartoesOpenFinance() {
+  const grid = document.getElementById("cartoes-of-grid");
+  if (grid) {
+    if (!STATE.cartoesOpenFinance.length) {
+      grid.innerHTML = '<div class="empty">Nenhum cartão encontrado via Open Finance ainda — sincronize uma conexão bancária que tenha cartão de crédito.</div>';
+    } else {
+      const ordenados = [...STATE.cartoesOpenFinance].sort((a, b) => (a.instituicao || "").localeCompare(b.instituicao || "", "pt-BR"));
+      grid.innerHTML = ordenados.map((c) => {
+        const pctUtilizado = c.limiteTotal > 0 ? Math.min(100, Math.max(0, (c.limiteUtilizado / c.limiteTotal) * 100)) : 0;
+        return (
+          `<div class="conexao-card">` +
+          `<div class="conexao-topo"><h3>${esc(c.instituicao)} — ${esc(c.nome)}</h3>${c.bandeira ? `<span class="badge-tipo Saida">${esc(c.bandeira)}</span>` : ""}</div>` +
+          `<div class="plano-progresso-barra"><div class="plano-progresso-fill" style="width:${pctUtilizado}%"></div></div>` +
+          `<div class="plano-progresso-legenda"><span class="pct">${pctUtilizado.toFixed(0)}% utilizado</span><span>${moeda(c.limiteUtilizado)} de ${moeda(c.limiteTotal)}</span></div>` +
+          `<div class="conexao-info" style="margin-top:10px;">Disponível: <strong>${moeda(c.limiteDisponivel)}</strong></div>` +
+          `<div class="conexao-info">Fechamento: ${c.dataFechamento ? dataBR(c.dataFechamento) : "não informado pelo banco"} · Vencimento: ${c.dataVencimento ? dataBR(c.dataVencimento) : "não informado pelo banco"}</div>` +
+          `<div class="conexao-info">Atualizado em: ${c.ultimaSincronizacao ? fmtDataHora(c.ultimaSincronizacao) : "—"}</div>` +
+          `</div>`
+        );
+      }).join("");
+    }
+  }
+  // Também aparecem como opção no formulário "Nova compra parcelada" — sem
+  // isso, um cartão Open Finance novo só ficaria selecionável depois de
+  // abrir alguma outra tela que chame preencherSelectCartoes() por acaso.
+  preencherSelectCartoes();
+}
+
+// Garante que existe um lançamento genérico "Importado do banco" pro tipo
+// pedido (Entrada ou Saída) — reaproveita se já existe um com esse nome E
+// esse tipo, senão cria. É pra onde vão transações importadas sem categoria
+// própria; o usuário edita a movimentação normalmente depois pra recategorizar.
+async function garantirLancamentoImportado(tipo) {
+  const nome = "Importado do banco";
+  const existente = STATE.lancamentos.find((l) => l.nome === nome && l.tipo === tipo);
+  if (existente) return existente.id;
+  const ref = await addDoc(collection(db, "lancamentos"), {
+    nome, tipo, categoria: "Open Finance (a revisar)", createdAt: serverTimestamp()
+  });
+  return ref.id;
+}
+
+// Chave usada pra "lembrar" como uma transação foi categorizada da última
+// vez — prioriza o CNPJ do estabelecimento (mais confiável, quando a
+// Pluggy manda) e cai pra descrição normalizada quando não tem CNPJ (ex:
+// Pix, boleto). Ver garantirRegraCategorizacao() e a seção de regras.
+function chaveCategorizador(t) {
+  if (t.merchant && t.merchant.cnpj) return "cnpj:" + t.merchant.cnpj;
+  const desc = String(t.description || t.descriptionRaw || "").trim().toUpperCase();
+  return desc ? "desc:" + desc : null;
+}
+
+// Cria ou atualiza a regra "essa chave sempre vira esse lançamento" — chamado
+// tanto durante a sincronização (pra aplicar regras já existentes) quanto
+// quando o usuário categoriza manualmente uma transação importada (pra
+// aprender a regra nova). "descricaoExemplo" é só texto de apoio pra
+// reconhecer a regra depois na planilha administrativa.
+async function garantirRegraCategorizacao(chave, lancamentoId, descricaoExemplo) {
+  if (!chave || !lancamentoId) return;
+  const existente = STATE.regrasCategorizacaoOF.find((r) => r.chave === chave);
+  if (existente) {
+    if (existente.lancamentoId === lancamentoId) return;
+    await updateDoc(doc(db, "regrasCategorizacaoOF", existente.id), { lancamentoId, descricaoExemplo: descricaoExemplo || existente.descricaoExemplo, atualizadoEm: serverTimestamp() });
+  } else {
+    await addDoc(collection(db, "regrasCategorizacaoOF"), { chave, lancamentoId, descricaoExemplo: descricaoExemplo || "", atualizadoEm: serverTimestamp() });
+  }
+}
+
+// Procura uma movimentação PENDENTE (não paga, ainda não vinda do banco —
+// ou seja, lançada manualmente ou por um custo recorrente) do mesmo
+// lançamento, com data próxima da transação real (até 7 dias de diferença).
+// É o que evita duplicar: em vez de criar uma segunda linha quando o Pix da
+// conta de energia cai no banco, o sistema atualiza a que você já tinha
+// lançado. "pendentesConsumidos" evita casar duas transações novas com o
+// mesmo pendente na mesma sincronização.
+function encontrarPendenteParaConciliar(lancamentoId, dataTransacaoStr, pendentesConsumidos) {
+  const dataTransacao = parseDataLocal(dataTransacaoStr);
+  let melhor = null;
+  let menorDiferenca = 8; // dias — fora dessa janela não conta como conciliável
+  STATE.movimentacoes.forEach((m) => {
+    if (m.origem === "Open Finance") return;
+    if (m.pago === true) return;
+    if (m.lancamentoId !== lancamentoId) return;
+    if (pendentesConsumidos.has(m.id)) return;
+    const diferencaDias = Math.abs((parseDataLocal(m.data) - dataTransacao) / 86400000);
+    if (diferencaDias <= 7 && diferencaDias < menorDiferenca) {
+      melhor = m;
+      menorDiferenca = diferencaDias;
+    }
+  });
+  return melhor;
+}
+
+// Tira o "N/M" do final da descrição (ex: "SHOPEE *AGAUTO 12/12" vira
+// "SHOPEE *AGAUTO") — usado pra agrupar as parcelas da mesma compra, já
+// que a Pluggy não manda um identificador único de compra parcelada.
+function baseDescricaoParcela(descricao) {
+  // Bancos às vezes mandam a mesma compra com espaçamento diferente entre
+  // as parcelas (ex: "Shopee *Agauto 11/12" vs "SHOPEE      *AGAUTO
+  // 12/12") — colapsa espaços múltiplos em um só antes de comparar, senão
+  // o agrupamento não reconhece que é a mesma compra.
+  return String(descricao || "")
+    .replace(/\s*\d{1,2}\s*\/\s*\d{1,2}\s*$/, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase();
+}
+
+// Chave que agrupa todas as parcelas da MESMA compra parcelada: mesma
+// conta + mesma descrição-base + mesmo valor de parcela + mesmo total de
+// parcelas. Diferente de chaveCategorizador (que muda a cada parcela
+// porque o texto "N/M" muda).
+function chaveGrupoParcelamento(t, meta) {
+  const base = baseDescricaoParcela(t.description || t.descriptionRaw);
+  if (!base) return null;
+  return [t.accountId, base, Math.abs(arredondar2(Number(t.amount) || 0)), meta.totalInstallments].join("|");
+}
+
+// Procura uma "previsão" (parcela futura já criada por uma sincronização
+// anterior, ainda não confirmada pelo banco) que corresponda exatamente a
+// esse número de parcela dessa compra — é o caso mais preciso de
+// conciliação (usa o agrupamento de parcelamento, não o lançamento).
+function encontrarPrevisaoParaConciliar(grupoParcelamento, parcelaAtual, pendentesConsumidos) {
+  return STATE.movimentacoes.find((m) =>
+    m.previsao === true && m.grupoParcelamento === grupoParcelamento &&
+    m.parcelaAtual === parcelaAtual && !pendentesConsumidos.has(m.id)
+  ) || null;
+}
+
+// Gera as parcelas FUTURAS (ainda não pagas) de uma compra parcelada
+// detectada no Open Finance — o banco só manda a transação que já
+// aconteceu, então sem isso as parcelas seguintes nunca apareceriam em
+// Movimentações antes de acontecerem de verdade (diferente do cadastro
+// manual de cartão, que já cria todas de uma vez). Cada previsão vira uma
+// movimentação PENDENTE normal; quando a parcela real chegar num sync
+// futuro, encontrarPrevisaoParaConciliar() casa com ela em vez de duplicar.
+function gerarPrevisoesFuturas(batch, t, meta, grupoParcelamento, lancamentoId, conexaoId, conexao, contaTipo, jaExistentesOuCriadas) {
+  const valorParcela = Math.abs(arredondar2(Number(t.amount) || 0));
+  const base = baseDescricaoParcela(t.description || t.descriptionRaw);
+  const dataBaseTransacao = parseDataLocal(String(t.date || "").slice(0, 10));
+  for (let n = meta.installmentNumber + 1; n <= meta.totalInstallments; n++) {
+    const marcador = grupoParcelamento + "#" + n;
+    if (jaExistentesOuCriadas.has(marcador)) continue;
+    jaExistentesOuCriadas.add(marcador);
+    const dataFutura = new Date(dataBaseTransacao);
+    dataFutura.setMonth(dataFutura.getMonth() + (n - meta.installmentNumber));
+    const movRef = doc(collection(db, "movimentacoes"));
+    batch.set(movRef, {
+      lancamentoId, data: formatarDataISO(dataFutura), valor: valorParcela, pago: false,
+      responsavel: "", origem: "Open Finance", cartaoId: null, compraParceladaId: null,
+      pluggyTransactionId: null, conexaoId, instituicao: conexao.instituicao || "Banco", contaTipo,
+      revisado: true, previsao: true, descricaoOrigem: `${base} ${n}/${meta.totalInstallments}`,
+      chaveCategorizador: null, grupoParcelamento, parcelaAtual: n, parcelaTotal: meta.totalInstallments,
+      valorTotalCompra: meta.totalAmount != null ? Number(meta.totalAmount) : null, createdAt: serverTimestamp()
+    });
+  }
+}
+
+// Cria ou atualiza o registro do cartão em cartoesOpenFinance a partir dos
+// dados que a própria Pluggy devolve pra uma conta type "CREDIT" — é só
+// leitura/espelho do banco, por isso não tem os campos de dia de
+// fechamento/vencimento fixos do cadastro manual de cartões (aqui a data
+// de fechamento/vencimento já vem calculada pelo banco a cada sincronização).
+async function sincronizarCartaoOpenFinance(conexaoId, conexao, conta) {
+  const cd = conta.creditData || {};
+  const limiteTotal = Number(cd.creditLimit) || 0;
+  const limiteUtilizado = Number(conta.balance) || 0;
+  const limiteDisponivel = cd.availableCreditLimit != null ? Number(cd.availableCreditLimit) : arredondar2(limiteTotal - limiteUtilizado);
+  const dados = {
+    conexaoId, instituicao: conexao.instituicao || "Banco", accountId: conta.id,
+    nome: conta.marketingName || conta.name || "Cartão", bandeira: cd.brand || "",
+    limiteTotal, limiteUtilizado, limiteDisponivel,
+    dataFechamento: cd.balanceCloseDate || null, dataVencimento: cd.balanceDueDate || null,
+    ultimaSincronizacao: serverTimestamp()
+  };
+  const existente = STATE.cartoesOpenFinance.find((c) => c.accountId === conta.id);
+  if (existente) {
+    await updateDoc(doc(db, "cartoesOpenFinance", existente.id), dados);
+  } else {
+    await addDoc(collection(db, "cartoesOpenFinance"), dados);
+  }
+}
+
+async function sincronizarConexao(conexaoId) {
+  const conexao = STATE.conexoesBancarias.find((c) => c.id === conexaoId);
+  if (!conexao) return mostrarToast("Conexão não encontrada.", true);
+  try {
+    mostrarToast(`Sincronizando ${conexao.instituicao || "banco"}...`);
+
+    const respContas = await chamarProxyPluggy({ action: "listAccounts", itemId: conexao.itemId });
+    const contas = respContas.accounts || [];
+    if (!contas.length) {
+      await updateDoc(doc(db, "conexoesBancarias", conexaoId), { ultimaSincronizacao: serverTimestamp(), status: "conectado" });
+      mostrarToast("Nenhuma conta encontrada nesta conexão.");
+      return;
+    }
+
+    // Cartões de crédito da conexão: atualiza limite/fatura ANTES das
+    // transações, independente de ter transação nova ou não.
+    for (const conta of contas) {
+      if (conta.type === "CREDIT") await sincronizarCartaoOpenFinance(conexaoId, conexao, conta);
+    }
+
+    const hoje = new Date();
+    const de = new Date(hoje);
+    de.setDate(de.getDate() - 90);
+    const dataDe = formatarDataISO(de);
+    const dataAte = formatarDataISO(hoje);
+
+    // "cartao" vem do type "CREDIT" que a Pluggy devolve pra cartão de
+    // crédito — é só uma etiqueta pra filtrar em Movimentações, não tem
+    // nenhuma relação com o cadastro manual de cartões (fatura, parcelas
+    // etc.) — são dois jeitos independentes de registrar gasto no cartão.
+    let todasTransacoes = [];
+    for (const conta of contas) {
+      const contaTipo = conta.type === "CREDIT" ? "cartao" : "banco";
+      const respTrans = await chamarProxyPluggy({ action: "listTransactions", accountId: conta.id, from: dataDe, to: dataAte });
+      (respTrans.transactions || []).forEach((t) => { t._contaTipo = contaTipo; });
+      todasTransacoes = todasTransacoes.concat(respTrans.transactions || []);
+    }
+
+    const jaImportadas = new Set(STATE.movimentacoes.map((m) => m.pluggyTransactionId).filter(Boolean));
+    const novas = todasTransacoes.filter((t) => t.id && !jaImportadas.has(t.id));
+
+    if (!novas.length) {
+      await updateDoc(doc(db, "conexoesBancarias", conexaoId), { ultimaSincronizacao: serverTimestamp(), status: "conectado" });
+      mostrarToast("Tudo em dia — nenhuma transação nova.");
+      return;
+    }
+
+    // Cria (ou reaproveita) os lançamentos genéricos ANTES do lote, pra já
+    // ter o ID deles na hora de gravar as movimentações.
+    const lancEntradaId = await garantirLancamentoImportado("Entrada");
+    const lancSaidaId = await garantirLancamentoImportado("Saida");
+    const mapaRegras = {};
+    STATE.regrasCategorizacaoOF.forEach((r) => (mapaRegras[r.chave] = r.lancamentoId));
+    const pendentesConsumidos = new Set();
+    // Marcadores "grupo#parcela" das previsões que já existem no banco de
+    // dados — evita recriar a mesma parcela futura a cada sincronização.
+    // Marca toda parcela (prevista OU já real) que já existe no banco de
+    // dados pra essa compra — cobre tanto "não recriar a mesma previsão
+    // de novo" quanto "não prever uma parcela que já chegou de verdade
+    // numa sincronização anterior".
+    const marcadoresParcelaExistentes = new Set();
+    STATE.movimentacoes.forEach((m) => {
+      if (m.grupoParcelamento && m.parcelaAtual != null) marcadoresParcelaExistentes.add(m.grupoParcelamento + "#" + m.parcelaAtual);
+    });
+    // Também marca as parcelas que já vêm como transação REAL nesta mesma
+    // sincronização — sem isso, se duas parcelas da mesma compra chegarem
+    // juntas (ex: depois de ficar muito tempo sem sincronizar), a mais
+    // antiga geraria uma previsão pra parcela que a mais nova já está
+    // trazendo de verdade, duplicando.
+    novas.forEach((t) => {
+      const m = t.creditCardMetadata;
+      if (m && m.installmentNumber != null && m.totalInstallments) {
+        const g = chaveGrupoParcelamento(t, m);
+        if (g) marcadoresParcelaExistentes.add(g + "#" + m.installmentNumber);
+      }
+    });
+
+    let qtdAutoCategorizadas = 0;
+    let qtdConciliadas = 0;
+    let qtdPrevisoesGeradas = 0;
+    const batch = writeBatch(db);
+    novas.forEach((t) => {
+      const valor = Number(t.amount) || 0;
+      const tipo = valor < 0 ? "Saida" : "Entrada";
+      const chave = chaveCategorizador(t);
+      const lancamentoIdRegra = chave ? mapaRegras[chave] : null;
+
+      const meta = t.creditCardMetadata;
+      const ehParcelaDeCartao = !!(meta && meta.installmentNumber != null && meta.totalInstallments);
+      const grupoParcelamento = ehParcelaDeCartao ? chaveGrupoParcelamento(t, meta) : null;
+      const dadosParcela = ehParcelaDeCartao ? {
+        parcelaAtual: meta.installmentNumber, parcelaTotal: meta.totalInstallments,
+        valorTotalCompra: meta.totalAmount != null ? Number(meta.totalAmount) : null
+      } : { parcelaAtual: null, parcelaTotal: null, valorTotalCompra: null };
+
+      const dataTransacao = String(t.date || dataAte).slice(0, 10);
+
+      // Conciliação tem duas formas, da mais precisa pra mais genérica:
+      // 1) Essa parcela já tinha sido PREVISTA numa sincronização anterior
+      //    (mesmo grupo de compra + mesmo número de parcela) — casa exato.
+      // 2) Sem previsão, mas já existe uma regra pra esse estabelecimento —
+      //    procura um lançamento pendente (manual ou recorrente) do mesmo
+      //    lançamento, com data próxima (até 7 dias), e ATUALIZA ele em vez
+      //    de criar outro. Não exige valor igual de propósito — contas como
+      //    energia variam de mês a mês; o valor real do banco substitui o
+      //    estimado.
+      const previsaoCorrespondente = grupoParcelamento
+        ? encontrarPrevisaoParaConciliar(grupoParcelamento, meta.installmentNumber, pendentesConsumidos)
+        : null;
+      const pendente = previsaoCorrespondente || (lancamentoIdRegra
+        ? encontrarPendenteParaConciliar(lancamentoIdRegra, dataTransacao, pendentesConsumidos)
+        : null);
+      if (lancamentoIdRegra) qtdAutoCategorizadas++;
+
+      // Se veio de uma previsão, mantém o lançamento que ela já tinha
+      // (herdado da parcela anterior da mesma compra) — senão usa a regra
+      // ou cai no genérico de sempre.
+      const lancamentoId = (previsaoCorrespondente && previsaoCorrespondente.lancamentoId)
+        || lancamentoIdRegra || (tipo === "Saida" ? lancSaidaId : lancEntradaId);
+
+      // "Revisado" só quando já sabemos com confiança do que se trata: veio
+      // de uma previsão (herda a categorização já feita na parcela
+      // anterior), casou por regra aprendida, ou conciliou com algo que
+      // você mesmo já tinha categorizado na mão. Caindo no genérico (sem
+      // nenhum desses três), continua "A REVISAR" como sempre foi.
+      const jaCategorizadaComConfianca = !!(previsaoCorrespondente || lancamentoIdRegra || pendente);
+
+      // "Pago" significa coisas diferentes pra conta bancária e pra cartão:
+      // numa conta, a transação já ter acontecido no extrato JÁ é o
+      // dinheiro tendo saído — pago de verdade. No cartão, a compra
+      // "acontecer" só quer dizer que ela entrou na fatura; continua em
+      // aberto até você realmente pagar a fatura. Por isso cartão sempre
+      // entra como PENDENTE aqui (igual o cadastro manual sempre fez),
+      // mesmo já tendo acontecido de verdade — você marca como pago
+      // quando pagar a fatura.
+      const jaPago = t._contaTipo !== "cartao";
+
+      const dadosOpenFinance = {
+        origem: "Open Finance", pluggyTransactionId: t.id, conexaoId: conexaoId, instituicao: conexao.instituicao || "Banco",
+        contaTipo: t._contaTipo || "banco", revisado: jaCategorizadaComConfianca, previsao: false, descricaoOrigem: t.description || t.descriptionRaw || "",
+        chaveCategorizador: chave, grupoParcelamento, ...dadosParcela
+      };
+
+      if (pendente) {
+        pendentesConsumidos.add(pendente.id);
+        qtdConciliadas++;
+        batch.update(doc(db, "movimentacoes", pendente.id), {
+          lancamentoId, pago: jaPago, data: dataTransacao, valor: Math.abs(arredondar2(valor)), ...dadosOpenFinance
+        });
+      } else {
+        const movRef = doc(collection(db, "movimentacoes"));
+        batch.set(movRef, {
+          lancamentoId, data: dataTransacao, valor: Math.abs(arredondar2(valor)), pago: jaPago,
+          responsavel: "", cartaoId: null, compraParceladaId: null, ...dadosOpenFinance, createdAt: serverTimestamp()
+        });
+      }
+
+      // Compra parcelada com parcelas ainda por vir: gera as previstas que
+      // ainda não existem, pra aparecerem como PENDENTE em Movimentações
+      // já agora, em vez de só quando cada uma acontecer de verdade.
+      if (ehParcelaDeCartao && meta.totalInstallments > meta.installmentNumber) {
+        qtdPrevisoesGeradas += meta.totalInstallments - meta.installmentNumber;
+        gerarPrevisoesFuturas(batch, t, meta, grupoParcelamento, lancamentoId, conexaoId, conexao, t._contaTipo || "cartao", marcadoresParcelaExistentes);
+      }
+    });
+    batch.update(doc(db, "conexoesBancarias", conexaoId), { ultimaSincronizacao: serverTimestamp(), status: "conectado" });
+    await batch.commit();
+    const partesResumo = [];
+    if (qtdConciliadas) partesResumo.push(`${qtdConciliadas} conciliada(s) com lançamento(s) pendente(s)`);
+    if (qtdAutoCategorizadas - qtdConciliadas > 0) partesResumo.push(`${qtdAutoCategorizadas - qtdConciliadas} categorizada(s) automaticamente por regra`);
+    if (qtdPrevisoesGeradas) partesResumo.push(`${qtdPrevisoesGeradas} parcela(s) futura(s) prevista(s)`);
+    const sufixo = partesResumo.length ? ` (${partesResumo.join(", ")})` : "";
+    mostrarToast(`${novas.length} transação(ões) importada(s) de ${conexao.instituicao || "banco"}${sufixo}. Recategorize em Movimentações se quiser.`);
+  } catch (err) {
+    mostrarToast("Não foi possível sincronizar: " + err.message, true);
+    try { await updateDoc(doc(db, "conexoesBancarias", conexaoId), { status: "erro" }); } catch (err2) { /* ignora falha secundária */ }
+  }
+}
+
+const btnConectarBanco = document.getElementById("btn-conectar-banco");
+if (btnConectarBanco) {
+  btnConectarBanco.addEventListener("click", async () => {
+    try {
+      const resp = await chamarProxyPluggy({ action: "connectToken" });
+      if (!resp.connectToken) throw new Error("Token de conexão não recebido.");
+      if (typeof window.PluggyConnect === "undefined") {
+        throw new Error("Widget da Pluggy Connect não carregou — confira o <script> no index.html.");
+      }
+      const pluggyConnect = new window.PluggyConnect({
+        connectToken: resp.connectToken,
+        // Sandbox da Pluggy (plano gratuito) só conecta a bancos de teste —
+        // troque pra false só depois de migrar pra uma conta de produção
+        // (veja o README, seção "Conexões Bancárias").
+        includeSandbox: true,
+        onSuccess: async (itemData) => {
+          try {
+            const item = (itemData && itemData.item) || {};
+            const instituicao = (item.connector && item.connector.name) || "Banco conectado";
+            const ref = await addDoc(collection(db, "conexoesBancarias"), {
+              itemId: item.id, instituicao, status: "conectado", ultimaSincronizacao: null,
+              ativoParaPessoal: true, createdAt: serverTimestamp()
+            });
+            mostrarToast("Banco conectado! Importando as transações...");
+            await sincronizarConexao(ref.id);
+          } catch (err) {
+            mostrarToast("Banco conectado, mas não foi possível salvar a conexão: " + err.message, true);
+          }
+        },
+        onError: () => mostrarToast("Não foi possível conectar o banco. Tente novamente.", true)
+      });
+      pluggyConnect.init();
+    } catch (err) {
+      mostrarToast("Não foi possível iniciar a conexão bancária: " + err.message, true);
+    }
+  });
+}
+
 /* ══════════════ CONFIGURAÇÕES ══════════════ */
 
 document.getElementById("btn-salvar-config").addEventListener("click", async () => {
@@ -2209,6 +2548,15 @@ function iniciarListeners() {
     });
   }, (err) => mostrarToast("Erro ao carregar conexões bancárias: " + err.message, true));
 
+  onSnapshot(collection(db, "cartoesOpenFinance"), (snap) => {
+    STATE.cartoesOpenFinance = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    renderCartoesOpenFinance();
+  }, (err) => mostrarToast("Erro ao carregar cartões (Open Finance): " + err.message, true));
+
+  onSnapshot(collection(db, "regrasCategorizacaoOF"), (snap) => {
+    STATE.regrasCategorizacaoOF = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  }, (err) => mostrarToast("Erro ao carregar regras de categorização: " + err.message, true));
+
   onSnapshot(collection(db, "feriados"), (snap) => {
     STATE.feriados = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     renderRecorrentes();
@@ -2228,9 +2576,12 @@ document.getElementById("mov-data").valueAsDate = new Date();
 document.getElementById("rec-inicio").valueAsDate = new Date();
 document.getElementById("compra-data").valueAsDate = new Date();
 
-// "De"/"Até" começam vazios de propósito (mostra tudo por padrão) — se um
-// deles viesse pré-preenchido com o mês atual, usar só o outro campo
-// filtraria sem querer num intervalo de dois lados em vez de um só.
+const hojeInicial = new Date();
+const mesInicial = `${hojeInicial.getFullYear()}-${String(hojeInicial.getMonth() + 1).padStart(2, "0")}`;
+document.getElementById("mov-filtro-mes-de").value = mesInicial;
+document.getElementById("mov-filtro-mes-ate").value = mesInicial;
+STATE.filtroMovMesDe = mesInicial;
+STATE.filtroMovMesAte = mesInicial;
 
 iniciarBuscaLancamento();
 iniciarListeners();

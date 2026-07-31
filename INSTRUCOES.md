@@ -1,15 +1,13 @@
-# Controle Financeiro Pamplona — Como colocar no ar
+# Controle Financeiro Leonardo — Como colocar no ar
 
 Este pacote tem estes arquivos:
-- `firebase-init.js` → liga o sistema ao banco de dados (Firestore) e guarda a URL do proxy da Pluggy (`PLUGGY_PROXY_URL`, opcional — veja o Passo 5)
-- `index.html`, `style.css`, `app.js` → o sistema que o Pamplona vai usar no navegador
+- `firebase-init.js` → liga o sistema ao banco de dados (Firestore)
+- `index.html`, `style.css`, `app.js` → o sistema que o Leonardo vai usar no navegador
 - `firestore.rules` → regras de segurança, cola no console do Firebase
 - `planilha.html` → uma página separada pra editar ou apagar dados direto, como se fosse uma planilha (veja o Passo 3 abaixo)
 - `manifest.json`, `service-worker.js`, ícones (`.png`/`.ico`) → deixam o sistema instalável como aplicativo. **Precisam ficar na mesma pasta que o `index.html`**, sempre que for hospedar — não são opcionais.
-- `Code.gs` → Apps Script mínimo, só usado se você configurar a integração bancária opcional (Passo 5) — guarda os segredos da Pluggy, nunca é hospedado junto com o site.
-
-Este sistema **começa vazio** — não tem uma pasta de migração de dados
-antigos, porque não existe uma base anterior pro Pamplona.
+- `Code.gs` → só é usado se vocês quiserem ativar a aba "Conexões Bancárias" (importar extrato do banco automaticamente). É **opcional** — sem configurar isso, o resto do sistema funciona normalmente (veja o Passo 5).
+- `migrate-node/` → ferramenta separada, só pra quando vocês quiserem trazer os dados da planilha antiga (**não sobe pra hospedagem**)
 
 ## Passo 1 — Criar o banco de dados (Firebase)
 
@@ -27,9 +25,9 @@ site com HTTPS. A forma mais simples e gratuita é o **GitHub Pages**:
 
 1. Crie uma conta gratuita em [github.com](https://github.com), se ainda não tiver.
 2. Crie um repositório novo.
-3. Arraste todos os arquivos deste pacote pra dentro dele (soltos, sem pastas) — **exceto o `Code.gs`**, esse não vai pro GitHub, vai só pro Apps Script (veja o Passo 5).
+3. Arraste todos os arquivos deste pacote pra dentro dele (soltos, sem pastas) — **exceto a pasta `migrate-node`**, essa fica só no seu computador.
 4. Nas configurações do repositório, ative o **GitHub Pages** apontando pra branch principal.
-5. Em alguns minutos, o link aparece — é esse link que o Pamplona vai usar.
+5. Em alguns minutos, o link aparece — é esse link que o Leonardo vai usar.
 
 ## Passo 3 — Editar dados direto, como numa planilha
 
@@ -37,7 +35,7 @@ Se você quiser corrigir um dado, apagar um registro de teste, ou colar uma
 lista inteira de uma vez, **não precisa entrar no site do Firebase**. Abra
 o link do site com `/planilha.html` no final (ex:
 `https://seusite.github.io/planilha.html`). Essa página pede uma senha (a
-senha inicial é `pamplona2026` — troque assim que puder, veja o `README.md`)
+senha inicial é `leonardo2026` — troque assim que puder, veja o `README.md`)
 e depois funciona como uma planilha: abas por tipo de dado, você edita a
 célula e ela salva sozinha, seleciona várias linhas e apaga de uma vez, e
 tem botões pra exportar em CSV/Excel ou importar um arquivo CSV/Excel de
@@ -46,50 +44,38 @@ uma vez.
 **Guarde o link e a senha dessa página em um lugar seguro** — quem tiver
 os dois consegue editar ou apagar qualquer dado do sistema.
 
-## Passo 4 — Usar o sistema
+## Passo 4 — Trazer os dados da planilha antiga (quando quiserem)
 
-Diferente do Financeiro Leonardo, este sistema **não tem dados antigos pra
-trazer** — é só começar a usar: cadastre seus lançamentos (Salário,
-Aluguel, Mercado...), seus cartões, e vá lançando as movimentações do dia a
-dia.
+O sistema novo começa vazio. Quando o Leonardo quiser trazer os dados que
+já existem na planilha antiga (lançamentos, movimentações, cartão etc.),
+veja o passo a passo em `migrate-node/README.md`. **Isso não precisa ser
+feito agora** — dá pra usar o sistema novo em paralelo, com dados de teste,
+até vocês decidirem migrar de verdade. E o sistema antigo continua
+funcionando normalmente enquanto isso.
 
-## Passo 5 — (Opcional) Conectar bancos via Open Finance
+## Passo 5 — Ativar "Conexões Bancárias" (opcional, avançado)
 
-A aba "🏦 Conexões Bancárias" importa automaticamente as transações do seu
-banco pra dentro do sistema, usando a **Pluggy** (uma agregadora brasileira
-de Open Finance). **Isso é totalmente opcional** — o resto do sistema
-funciona sem configurar nada disso.
+Essa aba importa o extrato do banco automaticamente pra dentro do sistema,
+usando um serviço chamado Pluggy. **Não é obrigatório** — pule esse passo
+se quiser, o resto do sistema funciona 100% sem isso.
 
-**Importante: essa integração só LÊ dados do banco.** Ela nunca faz
-pagamento, transferência, Pix ou qualquer outra coisa que mexa no seu
-dinheiro de verdade — só importa o extrato como movimentações, pra você não
-precisar digitar tudo à mão.
-
-Passo a passo resumido (detalhado no `README.md`, seção 4):
-
-1. **Crie uma conta grátis na Pluggy**: [console.pluggy.ai](https://console.pluggy.ai) — não pede cartão de crédito no tier sandbox. Anote o **Client ID** e o **Client Secret**.
-2. **Implante o `Code.gs` como Apps Script Web App**: cole o conteúdo dele numa planilha Google Sheets em branco (Extensões → Apps Script), implante como "Aplicativo da Web" (Executar como: Eu / Quem pode acessar: Qualquer pessoa), e copie a URL `/exec`.
-3. **Configure os segredos**: no editor do Apps Script, vá em Configurações do projeto → Script Properties, e adicione `PLUGGY_CLIENT_ID` e `PLUGGY_CLIENT_SECRET` com os valores do passo 1. Nunca cole esses valores em nenhum arquivo do site.
-4. **Cole a URL do Apps Script** em `firebase-init.js`, na constante `PLUGGY_PROXY_URL`.
-5. Suba o `firebase-init.js` atualizado pra hospedagem e pronto — a aba "Conexões Bancárias" já consegue conectar um banco.
-
-**Sobre o sandbox**: a conta gratuita da Pluggy só conecta a **bancos de
-teste fictícios**, pra você experimentar o fluxo sem usar uma conta real.
-Conectar um banco de verdade exige migrar pra uma conta de produção da
-Pluggy (com custo) e passar pela certificação de Open Finance deles — isso
-não vem incluído neste pacote; procure diretamente no site da Pluggy
-quando for a hora de fazer essa migração.
+Envolve criar uma conta gratuita em [console.pluggy.ai](https://console.pluggy.ai),
+implantar o `Code.gs` do mesmo jeito que o Passo 1 (Extensões → Apps
+Script → colar o código → Implantar como Aplicativo da Web), e colar duas
+informações da Pluggy (Client ID e Client Secret) nas "Script Properties"
+desse Apps Script. O passo a passo completo, com prints do que procurar em
+cada tela, está no `README.md`, seção "5. Conexões Bancárias".
 
 ## Estrutura de dados criada no Firestore
 
 - **lancamentos**: nome, tipo (Entrada/Saída), categoria
-- **movimentacoes**: lançamento, data, valor, se está pago, cartão (se for parcela), `pluggyTransactionId` (só em movimentações importadas do banco)
+- **movimentacoes**: lançamento, data, valor, se está pago, cartão (se for parcela)
 - **cartoes**: nome, limite, dia de fechamento e vencimento
 - **comprasParceladas**: compra parcelada no cartão, com todas as parcelas já criadas em movimentacoes
 - **recorrentes**: custos que se repetem todo mês (aluguel, assinatura...)
 - **historico**: log de tudo que foi editado ou excluído — nunca é apagado
 - **config**: renda mensal e saldo inicial
-- **feriados**: usado pra calcular vencimento em dia útil (começa vazio — cadastre pela planilha administrativa se quiser)
+- **feriados**: usado pra calcular vencimento em dia útil
+- **pessoas**: nomes que aparecem em "Quem comprou"
 - **planos**: metas de economia
-- **pessoas**: quem cadastrou/comprou cada movimentação
-- **conexoesBancarias**: um registro por banco conectado via Open Finance (Passo 5, opcional)
+- **conexoesBancarias**, **cartoesOpenFinance**, **regrasCategorizacaoOF**: usados só se a aba "Conexões Bancárias" (Passo 5) estiver configurada

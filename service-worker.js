@@ -1,4 +1,4 @@
-const CACHE_NAME = "finpamplona-v1";
+const CACHE_NAME = "finleo-v1";
 const CORE_ASSETS = [
   "./",
   "./index.html",
@@ -26,12 +26,11 @@ self.addEventListener("activate", (event) => {
 });
 
 // Network-first com fallback pro cache (abre mesmo offline/instável), mas
-// NUNCA cacheia chamadas ao Firestore nem à Pluggy (precisam sempre de
-// dados frescos; Firestore usa conexões de streaming de longa duração).
+// NUNCA cacheia chamadas ao Firestore (precisa sempre de dados frescos, usa
+// conexões de streaming de longa duração).
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   if (url.hostname.endsWith("googleapis.com") || url.hostname.includes("script.google.com")) return;
-  if (url.hostname.endsWith("pluggy.ai")) return;
   if (event.request.method !== "GET") return;
 
   event.respondWith(

@@ -1,5 +1,5 @@
 /**
- * Financeiro Pamplona — Apps Script mínimo, usado SÓ como proxy de segredos
+ * Financeiro Leonardo — Apps Script mínimo, usado SÓ como proxy de segredos
  * pra integração de Open Finance (Pluggy). NÃO é o banco de dados deste
  * sistema (isso é o Firestore) e NÃO guarda nenhum dado de negócio — só
  * repassa 3 chamadas de LEITURA pra API da Pluggy, usando credenciais que

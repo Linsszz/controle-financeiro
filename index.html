@@ -3,17 +3,17 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Controle Financeiro · Pamplona</title>
+<title>Controle Financeiro · Leonardo</title>
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
-<meta name="theme-color" content="#1B3358">
+<meta name="theme-color" content="#7C3AED">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Financeiro Pamplona">
+<meta name="apple-mobile-web-app-title" content="Financeiro Leonardo">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
@@ -29,12 +29,12 @@
 <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
 <div class="mobile-topbar">
   <button class="hamburger" id="btn-abrir-menu">☰</button>
-  <div class="mobile-topbar-title">Financeiro Pamplona</div>
+  <div class="mobile-topbar-title">Financeiro Leonardo</div>
 </div>
 
 <aside class="sidebar" id="sidebar">
   <div class="brandmark">
-    <div class="co-nome">Financeiro Pamplona</div>
+    <div class="co-nome">Financeiro Leonardo</div>
     <div class="co-sub">controle financeiro pessoal</div>
   </div>
   <nav>
@@ -151,8 +151,8 @@
       </div>
       <div class="kpi-grid" id="mov-kpi-grid" style="margin-top:16px;"></div>
       <table>
-        <thead><tr><th>Data</th><th>Lançamento</th><th>Tipo</th><th>Categoria</th><th>Quem comprou</th><th>Valor</th><th>Situação</th></tr></thead>
-        <tbody id="movs-body"><tr><td colspan="7" class="empty">Carregando…</td></tr></tbody>
+        <thead><tr><th>Data</th><th>Lançamento</th><th>Banco</th><th>Tipo</th><th>Categoria</th><th>Quem comprou</th><th>Valor</th><th>Situação</th></tr></thead>
+        <tbody id="movs-body"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
       </table>
     </div>
   </section>
@@ -201,6 +201,15 @@
       <p class="view-desc">Cadastre seus cartões e lance aqui as compras feitas <strong>no crédito</strong> (à vista no cartão ou parceladas). O primeiro indicador abaixo mostra o valor total que você precisa separar do seu salário este mês para pagar a fatura.</p>
     </div></header>
     <div class="kpi-grid" id="cartao-kpi-grid"></div>
+
+    <div class="card">
+      <h2>🏦 Cartões via Open Finance</h2>
+      <p class="hint" style="margin-top:0;">Cartões descobertos automaticamente nas suas conexões bancárias (aba "Conexões Bancárias") — limite, utilizado e disponível vêm direto do banco a cada sincronização. Isto é só leitura, diferente do cadastro manual abaixo.</p>
+      <div class="conexoes-grid" id="cartoes-of-grid">
+        <div class="empty">Carregando…</div>
+      </div>
+    </div>
+
     <div class="card">
       <h2>Novo cartão</h2>
       <div class="row">
@@ -644,7 +653,7 @@
     </div>
     <p class="hint">Mudar cartão, valor, nº de parcelas ou data da compra recalcula automaticamente as parcelas ainda não pagas em Movimentações (respeitando o dia de fechamento do cartão — compra feita a partir do fechamento entra na fatura do mês seguinte). Parcelas já pagas nunca são alteradas.</p>
     <button class="btn" id="btn-recalcular-compra" style="width:100%;margin-top:6px;">🔄 Recalcular parcelas com os dados atuais</button>
-    <p class="hint" style="margin-top:6px;">Use isso se as parcelas foram criadas antes de algum ajuste na regra de fechamento do sistema (ex: data de vencimento errada) — recalcula mesmo sem mudar nenhum campo acima.</p>
+    <p class="hint" style="margin-top:6px;">Use isso se as parcelas foram criadas antes de algum ajuste na regra do sistema (ex: data de vencimento errada) — recalcula mesmo sem mudar nenhum campo acima.</p>
     <div class="row" style="justify-content:space-between; margin-top:18px;">
       <button class="btn btn-danger" id="btn-excluir-compra">Excluir compra</button>
       <div class="row" style="width:auto;">
@@ -661,7 +670,7 @@
     <h2>Nova pessoa</h2>
     <div class="field" style="margin-top:14px;">
       <label>Nome</label>
-      <input type="text" id="nova-pessoa-nome" placeholder="Ex: Pamplona, Paula...">
+      <input type="text" id="nova-pessoa-nome" placeholder="Ex: Leonardo, Paula...">
     </div>
     <div class="row" style="justify-content:flex-end; margin-top:18px;">
       <button class="btn" id="btn-cancelar-nova-pessoa">Cancelar</button>
@@ -873,17 +882,5 @@
 -->
 <script type="module" src="firebase-init.js"></script>
 <script type="module" src="app.js"></script>
-<script>
-  // Registra o service worker — sem isso o navegador não considera o site
-  // "instalável" (ícone de instalar some do menu, e o Android não mostra o
-  // banner de "Adicionar à tela inicial" sozinho).
-  if ("serviceWorker" in navigator) {
-    window.addEventListener("load", () => {
-      navigator.serviceWorker.register("service-worker.js").catch((err) => {
-        console.error("Falha ao registrar service worker:", err);
-      });
-    });
-  }
-</script>
 </body>
 </html>

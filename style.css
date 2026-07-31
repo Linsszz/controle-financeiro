@@ -1,7 +1,7 @@
-/* Padrão visual felipe-firebase-style — sidebar navy, cards, tabelas. */
+/* Padrão visual felipe-firebase-style — sidebar roxa, cards, tabelas. */
 :root{
-  --bg:#F5F7FA; --panel:#FFFFFF; --ink:#1F2A3D; --ink-soft:#5C6B85; --ink-faint:#9AA7BD; --line:#DDE4EE;
-  --accent:#2C4C7C; --accent-soft:#E6EBF3; --accent-deep:#1B3358; --roxo:#1B3358;
+  --bg:#F8F5FC; --panel:#FFFFFF; --ink:#2C1F3D; --ink-soft:#6B5C82; --ink-faint:#A99BC0; --line:#E8DFF5;
+  --accent:#9B5DE5; --accent-soft:#F1E6FC; --accent-deep:#7C3AED; --roxo:#7C3AED;
   --credit:#16A34A; --credit-soft:#DCFCE7; --debit:#DC2626; --debit-soft:#FEE2E2;
   --warn:#D97706; --warn-soft:#FEF3C7; --info:#3B82F6; --info-soft:#E4EDFF;
   --radius:14px; --display:'Sora',sans-serif; --sans:'Manrope','Helvetica Neue',Arial,sans-serif;
@@ -29,7 +29,7 @@ button,input,select,textarea{font-family:var(--sans);}
 .sidebar a.active{background:var(--accent);color:#fff;}
 
 .mobile-topbar{display:none;}
-.sidebar-backdrop{position:fixed;inset:0;background:rgba(10,18,32,.45);z-index:125;display:none;}
+.sidebar-backdrop{position:fixed;inset:0;background:rgba(20,10,35,.45);z-index:125;display:none;}
 .sidebar-backdrop.active{display:block;}
 @media(max-width:900px){
   body{flex-direction:column;}
@@ -102,19 +102,14 @@ tbody tr.linha-clicavel{cursor:pointer;}
 
 .campo-alterado{font-family:var(--mono);font-size:11.5px;background:var(--accent-soft);color:var(--roxo);padding:3px 9px;border-radius:6px;}
 
-.modal-overlay{display:none;position:fixed;inset:0;background:rgba(10,18,32,.5);align-items:center;justify-content:center;z-index:200;padding:16px;}
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(20,10,35,.5);align-items:center;justify-content:center;z-index:200;padding:16px;}
 .modal-overlay.active{display:flex;}
-/* "Novo lançamento" e "Nova pessoa" são reabertos de DENTRO de outros
-   modais (ex: a partir da Ação rápida) — sem isso, os dois ficam na mesma
-   camada e quem abriu por último acaba atrás, por causa da ordem no HTML. */
-#modal-novo-lancamento.active,
-#modal-nova-pessoa.active{z-index:210;}
 .modal-box{background:var(--panel);border-radius:16px;padding:26px;width:100%;max-width:440px;border:1px solid var(--line);box-shadow:0 20px 50px rgba(0,0,0,.25);}
 .modal-box h2{font-family:var(--display);font-weight:800;font-size:17px;margin-bottom:6px;}
 .modal-box .field{margin-bottom:4px;}
 
-.fab-bar{position:fixed;left:0;right:0;bottom:0;height:64px;display:flex;align-items:center;justify-content:center;background:linear-gradient(to top,rgba(245,247,250,.97) 55%,rgba(245,247,250,0));z-index:150;pointer-events:none;padding-bottom:env(safe-area-inset-bottom);}
-.fab-btn{pointer-events:auto;width:54px;height:54px;border-radius:50%;background:var(--roxo);color:#fff;border:none;font-size:28px;font-weight:400;line-height:1;cursor:pointer;box-shadow:0 8px 22px rgba(27,51,88,.45);display:flex;align-items:center;justify-content:center;transition:transform .15s ease,background .15s ease;}
+.fab-bar{position:fixed;left:0;right:0;bottom:0;height:64px;display:flex;align-items:center;justify-content:center;background:linear-gradient(to top,rgba(248,245,252,.97) 55%,rgba(248,245,252,0));z-index:150;pointer-events:none;padding-bottom:env(safe-area-inset-bottom);}
+.fab-btn{pointer-events:auto;width:54px;height:54px;border-radius:50%;background:var(--roxo);color:#fff;border:none;font-size:28px;font-weight:400;line-height:1;cursor:pointer;box-shadow:0 8px 22px rgba(124,58,237,.45);display:flex;align-items:center;justify-content:center;transition:transform .15s ease,background .15s ease;}
 .fab-btn:hover{background:var(--accent-deep);transform:scale(1.06);}
 .fab-btn:active{transform:scale(.96);}
 
