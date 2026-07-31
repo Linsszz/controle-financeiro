@@ -2212,7 +2212,10 @@ function gerarPrevisoesFuturas(batch, t, meta, grupoParcelamento, lancamentoId, 
     jaExistentesOuCriadas.add(marcador);
     const dataFutura = new Date(dataBaseTransacao);
     dataFutura.setMonth(dataFutura.getMonth() + (n - meta.installmentNumber));
-    const movRef = doc(collection(db, "movimentacoes"));
+    // Mesma ideia do ID determinístico acima: evita duplicar a previsão se
+    // duas sincronizações rodarem em paralelo.
+    const idPrevisao = "prev_" + marcador.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 300);
+    const movRef = doc(db, "movimentacoes", idPrevisao);
     batch.set(movRef, {
       lancamentoId, data: formatarDataISO(dataFutura), valor: valorParcela, pago: false,
       responsavel: "", origem: "Open Finance", cartaoId: null, compraParceladaId: null,
@@ -2399,7 +2402,13 @@ async function sincronizarConexao(conexaoId) {
           lancamentoId, pago: jaPago, data: dataTransacao, valor: Math.abs(arredondar2(valor)), ...dadosOpenFinance
         });
       } else {
-        const movRef = doc(collection(db, "movimentacoes"));
+        // ID determinístico (baseado no ID da transação na Pluggy) em vez de
+        // um ID automático — assim, se duas sincronizações rodarem quase ao
+        // mesmo tempo (ex: duas abas abertas), as duas escrevem no MESMO
+        // documento em vez de criar duplicata. É o que corrige de vez a
+        // condição de corrida que a checagem "já existe no STATE local" não
+        // pegava quando as sincronizações eram simultâneas.
+        const movRef = doc(db, "movimentacoes", "of_" + t.id);
         batch.set(movRef, {
           lancamentoId, data: dataTransacao, valor: Math.abs(arredondar2(valor)), pago: jaPago,
           responsavel: "", cartaoId: null, compraParceladaId: null, ...dadosOpenFinance, createdAt: serverTimestamp()
