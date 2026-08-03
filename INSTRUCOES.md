@@ -78,4 +78,5 @@ cada tela, está no `README.md`, seção "5. Conexões Bancárias".
 - **feriados**: usado pra calcular vencimento em dia útil
 - **pessoas**: nomes que aparecem em "Quem comprou"
 - **planos**: metas de economia
+- **listaCompras**: lembretes de compras futuras (aba "Lista de Compras") — itens pontuais ou recorrentes, não mexe em saldo nenhum
 - **conexoesBancarias**, **cartoesOpenFinance**, **regrasCategorizacaoOF**: usados só se a aba "Conexões Bancárias" (Passo 5) estiver configurada

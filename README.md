@@ -139,6 +139,7 @@ publicada reflita o código novo — só salvar no editor não é suficiente.
 - **config/geral**: documento único com `rendaMensal`, `saldoInicial`
 - **feriados/{id}**: `data` (`yyyy-MM-dd`), `descricao` — usados no cálculo de vencimento em dia útil
 - **planos/{id}**: `icone`, `nome`, `descricao`, `valorAlvo`, `valorAcumulado`, `aportePlanejadoMensal`, `createdAt` — metas de economia (aba "Planos")
+- **listaCompras/{id}**: `nome`, `descricao`, `valorEstimado`, `categoria`, `tipoCompra` (`Recorrente`/`Pontual`), `status` (`Pendente`/`Comprado`/`Cancelado`), `recorrenciaFrequencia` (`semanal`/`mensal`/`anual`/`personalizada`, só em itens Recorrentes), `recorrenciaIntervaloDias` (só quando a frequência é `personalizada`), `ultimaCompra`, `proximaCompra`, `createdAt` — lembretes de compras futuras (aba "Lista de Compras"), não mexe em saldo nenhum
 - **planos/{id}/aportes/{id}**: `tipo` (`Aporte`/`Retirada`), `valor`, `data`, `timestamp` — log permanente de cada aporte/retirada de um plano, create-only
 - **pessoas/{id}**: `nome`, `createdAt` — alimenta os selects de "Quem comprou" em Movimentações e Cartão de Crédito
 - **conexoesBancarias/{id}**: `itemId` (id do "item" na Pluggy), `instituicao`, `status` (`conectado`/`erro`/`reconexao_necessaria`), `ultimaSincronizacao`, `ativoParaPessoal`, `createdAt` — um documento por banco conectado via Open Finance
@@ -212,6 +213,13 @@ previsão em vez de duplicar.
   somente leitura — veja a seção 5 acima. Categorização automática que
   aprende, conciliação com lançamentos já pendentes (evita duplicar) e
   previsão de parcelas futuras de cartão.
+- **Lista de Compras**: aba nova de lembretes/planejamento de compras
+  futuras — separada das Movimentações porque ainda não é um gasto de
+  verdade. Itens **Pontuais** vão pro histórico assim que marcados como
+  comprados; itens **Recorrentes** nunca são removidos — reagendam
+  sozinhos pro próximo período (semanal, mensal, anual ou a cada X dias)
+  ao serem marcados como comprados. Dá pra filtrar por tipo, categoria e
+  status, e ordenar por data, valor estimado ou nome.
 
 ## Trocar a senha da planilha administrativa
 

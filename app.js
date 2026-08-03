@@ -25,6 +25,7 @@ const STATE = {
   historico: [],
   feriados: [],
   planos: [],
+  listaCompras: [],
   pessoas: [],
   conexoesBancarias: [],
   cartoesOpenFinance: [],
@@ -35,7 +36,11 @@ const STATE = {
   filtroMovPessoa: "",
   filtroMovBanco: "",
   filtroMovTipoConta: "",
-  filtroMovRevisado: ""
+  filtroMovRevisado: "",
+  filtroLCTipo: "",
+  filtroLCCategoria: "",
+  filtroLCStatus: "",
+  filtroLCOrdenar: "data"
 };
 
 let recorrentesCarregados = false;
@@ -187,6 +192,28 @@ function calcularProximoVencimento(diaVencimento, referencia) {
     }
   }
   return formatarDataISO(venc);
+}
+
+// Próxima data de compra de um item recorrente da Lista de Compras, a
+// partir de uma data-base (normalmente "hoje", no momento em que o item foi
+// marcado como comprado). Diferente do vencimento de custo recorrente, aqui
+// não existe dia-do-mês fixo nem ajuste pra dia útil — é sempre "data-base +
+// intervalo da recorrência".
+function calcularProximaDataCompra(frequencia, intervaloDias, dataBaseStr) {
+  const base = dataBaseStr ? parseDataLocal(dataBaseStr) : new Date();
+  const d = new Date(base);
+  if (frequencia === "semanal") d.setDate(d.getDate() + 7);
+  else if (frequencia === "anual") d.setFullYear(d.getFullYear() + 1);
+  else if (frequencia === "personalizada") d.setDate(d.getDate() + (Number(intervaloDias) || 30));
+  else d.setMonth(d.getMonth() + 1); // "mensal" e qualquer valor desconhecido caem aqui
+  return formatarDataISO(d);
+}
+
+function rotuloFrequenciaCompra(frequencia, intervaloDias) {
+  if (frequencia === "semanal") return "Semanal";
+  if (frequencia === "anual") return "Anual";
+  if (frequencia === "personalizada") return `A cada ${Number(intervaloDias) || 0} dias`;
+  return "Mensal";
 }
 
 // Em qual mês cai a primeira fatura de uma compra (parcelada ou à vista): se
@@ -1995,6 +2022,269 @@ document.getElementById("btn-salvar-aporte").addEventListener("click", async () 
   }
 });
 
+/* ══════════════ LISTA DE COMPRAS ══════════════
+ *
+ * Lembretes/planejamento de compras futuras — não é uma movimentação (não
+ * mexe em saldo nenhum). Cada item é "Pontual" (compra só uma vez; ao
+ * marcar como comprado vai pro histórico com status "Comprado") ou
+ * "Recorrente" (se repete; ao marcar como comprado NUNCA é removido nem
+ * muda de status — só reagenda "proximaCompra" pro próximo período e
+ * continua aparecendo como pendente). "Cancelado" existe pros dois tipos e
+ * também vai pro histórico, com um botão "Reativar" pra voltar a pendente.
+ */
+
+function preencherFiltroCategoriaCompras() {
+  const sel = document.getElementById("lc-filtro-categoria");
+  const atual = sel.value;
+  const categorias = [...new Set(STATE.listaCompras.map((i) => i.categoria).filter(Boolean))].sort();
+  sel.innerHTML = '<option value="">Todas as categorias</option>' + categorias.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
+  sel.value = categorias.includes(atual) ? atual : "";
+  document.getElementById("dl-lc-categoria").innerHTML = categorias.map((c) => `<option value="${esc(c)}"></option>`).join("");
+}
+
+function filtrarItensCompra(lista) {
+  return lista.filter((i) => {
+    if (STATE.filtroLCTipo && i.tipoCompra !== STATE.filtroLCTipo) return false;
+    if (STATE.filtroLCCategoria && (i.categoria || "") !== STATE.filtroLCCategoria) return false;
+    if (STATE.filtroLCStatus && i.status !== STATE.filtroLCStatus) return false;
+    return true;
+  });
+}
+
+function ordenarItensCompra(lista) {
+  const arr = [...lista];
+  if (STATE.filtroLCOrdenar === "valor") arr.sort((a, b) => (Number(b.valorEstimado) || 0) - (Number(a.valorEstimado) || 0));
+  else if (STATE.filtroLCOrdenar === "nome") arr.sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+  else arr.sort((a, b) => tsParaMillis(b.createdAt) - tsParaMillis(a.createdAt));
+  return arr;
+}
+
+function renderListaComprasKpis(pendentes) {
+  const valorEstimadoTotal = pendentes.reduce((s, i) => s + (Number(i.valorEstimado) || 0), 0);
+  const totalRecorrentes = pendentes.filter((i) => i.tipoCompra === "Recorrente").length;
+  document.getElementById("lc-kpi-grid").innerHTML =
+    kpiCard("Itens pendentes", String(pendentes.length), true) +
+    kpiCard("Valor estimado (pendentes)", moeda(valorEstimadoTotal), true) +
+    kpiCard("Recorrentes ativos", String(totalRecorrentes), true);
+}
+
+function renderListaCompras() {
+  preencherFiltroCategoriaCompras();
+  const filtradas = ordenarItensCompra(filtrarItensCompra(STATE.listaCompras));
+
+  const todosPendentes = STATE.listaCompras.filter((i) => i.status === "Pendente");
+  renderListaComprasKpis(todosPendentes);
+
+  const recorrentes = filtradas.filter((i) => i.tipoCompra === "Recorrente" && i.status === "Pendente");
+  const pontuais = filtradas.filter((i) => i.tipoCompra === "Pontual" && i.status === "Pendente");
+  const historico = filtradas
+    .filter((i) => i.status !== "Pendente")
+    .sort((a, b) => tsParaMillis(b.createdAt) - tsParaMillis(a.createdAt));
+
+  const bodyRec = document.getElementById("lc-recorrentes-body");
+  bodyRec.innerHTML = recorrentes.length ? recorrentes.map((i) => (
+    `<tr class="linha-clicavel" data-abrir-item-compra="${i.id}">` +
+    `<td>${esc(i.nome)}${i.descricao ? `<span class="sublabel">${esc(i.descricao)}</span>` : ""}</td>` +
+    `<td>${esc(i.categoria || "—")}</td>` +
+    `<td class="num">${i.valorEstimado ? moeda(i.valorEstimado) : "—"}</td>` +
+    `<td>${rotuloFrequenciaCompra(i.recorrenciaFrequencia, i.recorrenciaIntervaloDias)}</td>` +
+    `<td>${i.ultimaCompra ? dataBR(i.ultimaCompra) : "—"}</td>` +
+    `<td>${i.proximaCompra ? dataBR(i.proximaCompra) : "—"}</td>` +
+    `<td><button class="btn-small" data-marcar-comprado="${i.id}">Marcar comprado</button></td></tr>`
+  )).join("") : '<tr><td colspan="7" class="empty">Nenhuma compra recorrente pendente.</td></tr>';
+
+  const bodyPont = document.getElementById("lc-pontuais-body");
+  bodyPont.innerHTML = pontuais.length ? pontuais.map((i) => (
+    `<tr class="linha-clicavel" data-abrir-item-compra="${i.id}">` +
+    `<td>${esc(i.nome)}${i.descricao ? `<span class="sublabel">${esc(i.descricao)}</span>` : ""}</td>` +
+    `<td>${esc(i.categoria || "—")}</td>` +
+    `<td class="num">${i.valorEstimado ? moeda(i.valorEstimado) : "—"}</td>` +
+    `<td>${fmtDataHora(i.createdAt)}</td>` +
+    `<td><button class="btn-small" data-marcar-comprado="${i.id}">Marcar comprado</button></td></tr>`
+  )).join("") : '<tr><td colspan="5" class="empty">Nenhuma compra pontual pendente.</td></tr>';
+
+  const bodyHist = document.getElementById("lc-historico-body");
+  bodyHist.innerHTML = historico.length ? historico.map((i) => (
+    `<tr class="linha-clicavel" data-abrir-item-compra="${i.id}">` +
+    `<td>${esc(i.nome)}</td>` +
+    `<td><span class="badge-tipo ${i.tipoCompra}">${esc(i.tipoCompra)}</span></td>` +
+    `<td>${esc(i.categoria || "—")}</td>` +
+    `<td class="num">${i.valorEstimado ? moeda(i.valorEstimado) : "—"}</td>` +
+    `<td><span class="stamp ${i.status === "Comprado" ? "pago" : "inativo"}">${i.status === "Comprado" ? "COMPRADO" : "CANCELADO"}</span></td>` +
+    `<td>${i.ultimaCompra ? dataBR(i.ultimaCompra) : "—"}</td>` +
+    `<td><button class="btn-small" data-reativar-item="${i.id}">Reativar</button></td></tr>`
+  )).join("") : '<tr><td colspan="7" class="empty">Nenhum item no histórico ainda.</td></tr>';
+
+  document.querySelectorAll("[data-abrir-item-compra]").forEach((tr) => {
+    tr.addEventListener("click", () => abrirModalEditarItemCompra(tr.dataset.abrirItemCompra));
+  });
+  document.querySelectorAll("[data-marcar-comprado]").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      marcarItemCompraComprado(btn.dataset.marcarComprado);
+    });
+  });
+  document.querySelectorAll("[data-reativar-item]").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      reativarItemCompra(btn.dataset.reativarItem);
+    });
+  });
+}
+
+["lc-filtro-tipo", "lc-filtro-categoria", "lc-filtro-status", "lc-filtro-ordenar"].forEach((id) => {
+  document.getElementById(id).addEventListener("change", (e) => {
+    if (id === "lc-filtro-tipo") STATE.filtroLCTipo = e.target.value;
+    if (id === "lc-filtro-categoria") STATE.filtroLCCategoria = e.target.value;
+    if (id === "lc-filtro-status") STATE.filtroLCStatus = e.target.value;
+    if (id === "lc-filtro-ordenar") STATE.filtroLCOrdenar = e.target.value;
+    renderListaCompras();
+  });
+});
+
+// Mostra/esconde os campos de recorrência (frequência / intervalo em dias)
+// conforme o tipo de compra escolhido, tanto no form de novo item quanto no
+// modal de edição.
+function alternarCamposRecorrencia(prefixo) {
+  const tipo = document.getElementById(`${prefixo}-tipo`).value;
+  document.getElementById(`${prefixo}-campos-recorrencia`).classList.toggle("hidden", tipo !== "Recorrente");
+}
+function alternarCampoIntervalo(prefixo) {
+  const freq = document.getElementById(`${prefixo}-frequencia`).value;
+  document.getElementById(`${prefixo}-campo-intervalo`).classList.toggle("hidden", freq !== "personalizada");
+}
+document.getElementById("lc-tipo").addEventListener("change", () => alternarCamposRecorrencia("lc"));
+document.getElementById("lc-frequencia").addEventListener("change", () => alternarCampoIntervalo("lc"));
+document.getElementById("edit-lc-tipo").addEventListener("change", () => alternarCamposRecorrencia("edit-lc"));
+document.getElementById("edit-lc-frequencia").addEventListener("change", () => alternarCampoIntervalo("edit-lc"));
+alternarCamposRecorrencia("lc"); // estado inicial do form (tipo padrão = Pontual, então já começa escondido)
+
+document.getElementById("btn-add-item-compra").addEventListener("click", async () => {
+  const nome = document.getElementById("lc-nome").value.trim();
+  const categoria = document.getElementById("lc-categoria").value.trim();
+  const valorEstimado = Number(document.getElementById("lc-valor").value) || 0;
+  const tipoCompra = document.getElementById("lc-tipo").value;
+  const descricao = document.getElementById("lc-descricao").value.trim();
+  const frequencia = document.getElementById("lc-frequencia").value;
+  const intervaloDias = Number(document.getElementById("lc-intervalo-dias").value) || 0;
+  if (!nome) return mostrarToast("Dê um nome pro item.", true);
+  if (tipoCompra === "Recorrente" && frequencia === "personalizada" && intervaloDias <= 0) {
+    return mostrarToast("Informe a cada quantos dias esse item se repete.", true);
+  }
+  try {
+    const dados = { nome, descricao, valorEstimado, categoria, tipoCompra, status: "Pendente", ultimaCompra: null, proximaCompra: null, createdAt: serverTimestamp() };
+    if (tipoCompra === "Recorrente") {
+      dados.recorrenciaFrequencia = frequencia;
+      dados.recorrenciaIntervaloDias = frequencia === "personalizada" ? intervaloDias : null;
+    }
+    await addDoc(collection(db, "listaCompras"), dados);
+    mostrarToast("Item adicionado à lista de compras!");
+    document.getElementById("lc-nome").value = "";
+    document.getElementById("lc-categoria").value = "";
+    document.getElementById("lc-valor").value = "";
+    document.getElementById("lc-descricao").value = "";
+    document.getElementById("lc-tipo").value = "Pontual";
+    document.getElementById("lc-frequencia").value = "mensal";
+    document.getElementById("lc-intervalo-dias").value = "";
+    alternarCamposRecorrencia("lc");
+    alternarCampoIntervalo("lc");
+  } catch (err) {
+    mostrarToast("Não foi possível salvar: " + err.message, true);
+  }
+});
+
+// Marca um item como comprado. Pontual: vira status "Comprado" e vai pro
+// histórico. Recorrente: NUNCA muda de status — só registra "ultimaCompra"
+// e recalcula "proximaCompra" pro próximo período, continuando pendente.
+async function marcarItemCompraComprado(id) {
+  const item = STATE.listaCompras.find((i) => i.id === id);
+  if (!item) return mostrarToast("Item não encontrado.", true);
+  const hoje = formatarDataISO(new Date());
+  try {
+    if (item.tipoCompra === "Recorrente") {
+      const proxima = calcularProximaDataCompra(item.recorrenciaFrequencia, item.recorrenciaIntervaloDias, hoje);
+      await updateDoc(doc(db, "listaCompras", id), { ultimaCompra: hoje, proximaCompra: proxima });
+      mostrarToast(`Comprado! Reagendado para ${dataBR(proxima)}.`);
+    } else {
+      await updateDoc(doc(db, "listaCompras", id), { status: "Comprado", ultimaCompra: hoje });
+      mostrarToast("Item marcado como comprado!");
+    }
+  } catch (err) {
+    mostrarToast("Não foi possível atualizar: " + err.message, true);
+  }
+}
+
+async function reativarItemCompra(id) {
+  try {
+    await updateDoc(doc(db, "listaCompras", id), { status: "Pendente" });
+    mostrarToast("Item reativado — voltou pra lista de pendentes.");
+  } catch (err) {
+    mostrarToast("Não foi possível reativar: " + err.message, true);
+  }
+}
+
+function abrirModalEditarItemCompra(id) {
+  const i = STATE.listaCompras.find((x) => x.id === id);
+  if (!i) return mostrarToast("Item não encontrado.", true);
+  document.getElementById("edit-lc-id").value = i.id;
+  document.getElementById("edit-lc-nome").value = i.nome;
+  document.getElementById("edit-lc-categoria").value = i.categoria || "";
+  document.getElementById("edit-lc-valor").value = i.valorEstimado || "";
+  document.getElementById("edit-lc-tipo").value = i.tipoCompra;
+  document.getElementById("edit-lc-frequencia").value = i.recorrenciaFrequencia || "mensal";
+  document.getElementById("edit-lc-intervalo-dias").value = i.recorrenciaIntervaloDias || "";
+  document.getElementById("edit-lc-descricao").value = i.descricao || "";
+  document.getElementById("edit-lc-status").value = i.status;
+  alternarCamposRecorrencia("edit-lc");
+  alternarCampoIntervalo("edit-lc");
+  document.getElementById("modal-editar-item-compra").classList.add("active");
+}
+function fecharModalEditarItemCompra() {
+  document.getElementById("modal-editar-item-compra").classList.remove("active");
+}
+document.getElementById("btn-cancelar-edicao-item-compra").addEventListener("click", fecharModalEditarItemCompra);
+document.getElementById("modal-editar-item-compra").addEventListener("click", (e) => {
+  if (e.target.id === "modal-editar-item-compra") fecharModalEditarItemCompra();
+});
+
+document.getElementById("btn-salvar-edicao-item-compra").addEventListener("click", async () => {
+  const id = document.getElementById("edit-lc-id").value;
+  const nome = document.getElementById("edit-lc-nome").value.trim();
+  const categoria = document.getElementById("edit-lc-categoria").value.trim();
+  const valorEstimado = Number(document.getElementById("edit-lc-valor").value) || 0;
+  const tipoCompra = document.getElementById("edit-lc-tipo").value;
+  const frequencia = document.getElementById("edit-lc-frequencia").value;
+  const intervaloDias = Number(document.getElementById("edit-lc-intervalo-dias").value) || 0;
+  const descricao = document.getElementById("edit-lc-descricao").value.trim();
+  const status = document.getElementById("edit-lc-status").value;
+  if (!nome) return mostrarToast("Dê um nome pro item.", true);
+  if (tipoCompra === "Recorrente" && frequencia === "personalizada" && intervaloDias <= 0) {
+    return mostrarToast("Informe a cada quantos dias esse item se repete.", true);
+  }
+  try {
+    const dados = { nome, categoria, valorEstimado, tipoCompra, descricao, status };
+    dados.recorrenciaFrequencia = tipoCompra === "Recorrente" ? frequencia : null;
+    dados.recorrenciaIntervaloDias = tipoCompra === "Recorrente" && frequencia === "personalizada" ? intervaloDias : null;
+    await updateDoc(doc(db, "listaCompras", id), dados);
+    mostrarToast("Item atualizado!");
+    fecharModalEditarItemCompra();
+  } catch (err) {
+    mostrarToast("Não foi possível salvar: " + err.message, true);
+  }
+});
+
+document.getElementById("btn-excluir-item-compra").addEventListener("click", async () => {
+  const id = document.getElementById("edit-lc-id").value;
+  if (!confirm("Excluir este item da lista de compras?")) return;
+  try {
+    await deleteDoc(doc(db, "listaCompras", id));
+    mostrarToast("Item excluído.");
+    fecharModalEditarItemCompra();
+  } catch (err) {
+    mostrarToast("Não foi possível excluir: " + err.message, true);
+  }
+});
+
 /* ══════════════ CONEXÕES BANCÁRIAS (Open Finance via Pluggy — só leitura) ══════════════
  *
  * Escopo desta integração: importar transações/saldos do banco PRA DENTRO
@@ -2539,6 +2829,11 @@ function iniciarListeners() {
     STATE.planos = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     renderPlanos();
   }, (err) => mostrarToast("Erro ao carregar planos: " + err.message, true));
+
+  onSnapshot(collection(db, "listaCompras"), (snap) => {
+    STATE.listaCompras = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    renderListaCompras();
+  }, (err) => mostrarToast("Erro ao carregar lista de compras: " + err.message, true));
 
   onSnapshot(collection(db, "conexoesBancarias"), (snap) => {
     STATE.conexoesBancarias = snap.docs.map((d) => ({ id: d.id, ...d.data() }));

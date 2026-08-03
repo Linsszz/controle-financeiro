@@ -45,6 +45,7 @@
     <a data-view="conexoes"><span class="ico">🏦</span>Conexões Bancárias</a>
     <a data-view="recorrentes"><span class="ico">🔁</span>Custos Recorrentes</a>
     <a data-view="planos"><span class="ico">🎯</span>Planos</a>
+    <a data-view="listaCompras"><span class="ico">🛒</span>Lista de Compras</a>
     <a data-view="historico"><span class="ico">🕒</span>Histórico</a>
     <a data-view="config"><span class="ico">⚙️</span>Configurações</a>
   </nav>
@@ -383,6 +384,122 @@
     <div class="kpi-grid" id="planos-kpi-grid"></div>
     <div class="planos-grid" id="planos-grid">
       <div class="empty">Carregando planos…</div>
+    </div>
+  </section>
+
+  <!-- LISTA DE COMPRAS -->
+  <section id="view-listaCompras" class="view">
+    <header class="top"><div><h1>Lista de Compras</h1>
+      <p class="view-desc">Lembretes e planejamento de compras futuras — separado das Movimentações porque ainda não é um gasto de verdade. Itens <strong>Pontuais</strong> saem da lista assim que comprados (e vão pro histórico); itens <strong>Recorrentes</strong> voltam automaticamente pro próximo período em vez de sumir.</p>
+    </div></header>
+    <div class="kpi-grid" id="lc-kpi-grid"></div>
+
+    <div class="card">
+      <h2>Novo item</h2>
+      <div class="row">
+        <div class="field">
+          <label>Nome do item</label>
+          <input type="text" id="lc-nome" placeholder="Ex: Filtro de água, Ração do gato...">
+        </div>
+        <div class="field">
+          <label>Categoria</label>
+          <input type="text" id="lc-categoria" list="dl-lc-categoria" autocomplete="off" placeholder="Ex: Casa, Mercado, Pet...">
+          <datalist id="dl-lc-categoria"></datalist>
+        </div>
+        <div class="field">
+          <label>Valor estimado (R$)</label>
+          <input type="number" step="0.01" id="lc-valor" placeholder="Opcional">
+        </div>
+        <div class="field">
+          <label>Tipo de compra</label>
+          <select id="lc-tipo">
+            <option value="Pontual">Pontual (só desta vez)</option>
+            <option value="Recorrente">Recorrente (se repete)</option>
+          </select>
+        </div>
+      </div>
+      <div class="row" id="lc-campos-recorrencia" style="margin-top:10px;">
+        <div class="field">
+          <label>Recorrência</label>
+          <select id="lc-frequencia">
+            <option value="semanal">Semanal</option>
+            <option value="mensal" selected>Mensal</option>
+            <option value="anual">Anual</option>
+            <option value="personalizada">Personalizada (a cada X dias)</option>
+          </select>
+        </div>
+        <div class="field hidden" id="lc-campo-intervalo">
+          <label>A cada quantos dias</label>
+          <input type="number" min="1" id="lc-intervalo-dias" placeholder="Ex: 90">
+        </div>
+      </div>
+      <div class="field" style="margin-top:10px;">
+        <label>Descrição</label>
+        <input type="text" id="lc-descricao" placeholder="Detalhes opcionais — marca, tamanho, onde comprar...">
+      </div>
+      <button class="btn btn-primary" id="btn-add-item-compra" style="margin-top:14px;">Adicionar à lista</button>
+    </div>
+
+    <div class="card">
+      <h2>Filtrar e ordenar</h2>
+      <div class="row">
+        <div class="field">
+          <label>Tipo</label>
+          <select id="lc-filtro-tipo">
+            <option value="">Todos os tipos</option>
+            <option value="Recorrente">Recorrente</option>
+            <option value="Pontual">Pontual</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Categoria</label>
+          <select id="lc-filtro-categoria"><option value="">Todas as categorias</option></select>
+        </div>
+        <div class="field">
+          <label>Status</label>
+          <select id="lc-filtro-status">
+            <option value="">Todos os status</option>
+            <option value="Pendente">Pendente</option>
+            <option value="Comprado">Comprado</option>
+            <option value="Cancelado">Cancelado</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Ordenar por</label>
+          <select id="lc-filtro-ordenar">
+            <option value="data">Data de criação (mais novo)</option>
+            <option value="valor">Valor estimado (maior)</option>
+            <option value="nome">Nome (A-Z)</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>🔁 Compras recorrentes</h2>
+      <p class="hint" style="margin-top:0;">Clique numa linha pra editar. Ao marcar como comprado, o item some da lista de pendentes e reaparece sozinho no próximo período — nunca é excluído.</p>
+      <table>
+        <thead><tr><th>Item</th><th>Categoria</th><th>Valor estimado</th><th>Recorrência</th><th>Última compra</th><th>Próxima compra</th><th>Ação</th></tr></thead>
+        <tbody id="lc-recorrentes-body"><tr><td colspan="7" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>🛒 Compras pontuais</h2>
+      <p class="hint" style="margin-top:0;">Clique numa linha pra editar. Ao marcar como comprado, o item vai pro histórico abaixo.</p>
+      <table>
+        <thead><tr><th>Item</th><th>Categoria</th><th>Valor estimado</th><th>Criado em</th><th>Ação</th></tr></thead>
+        <tbody id="lc-pontuais-body"><tr><td colspan="5" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>✅ Histórico</h2>
+      <p class="hint" style="margin-top:0;">Itens pontuais já comprados e itens (de qualquer tipo) cancelados. Clique em "Reativar" pra voltar um item pra lista de pendentes.</p>
+      <table>
+        <thead><tr><th>Item</th><th>Tipo</th><th>Categoria</th><th>Valor estimado</th><th>Status</th><th>Data</th><th>Ação</th></tr></thead>
+        <tbody id="lc-historico-body"><tr><td colspan="7" class="empty">Nenhum item no histórico ainda.</td></tr></tbody>
+      </table>
     </div>
   </section>
 
@@ -756,6 +873,67 @@
     <div class="row" style="justify-content:flex-end; margin-top:18px;">
       <button class="btn" id="btn-cancelar-aporte">Cancelar</button>
       <button class="btn btn-primary" id="btn-salvar-aporte">Registrar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: editar/excluir item da Lista de Compras -->
+<div class="modal-overlay" id="modal-editar-item-compra">
+  <div class="modal-box">
+    <h2>Editar item</h2>
+    <input type="hidden" id="edit-lc-id">
+    <div class="field" style="margin-top:14px;">
+      <label>Nome do item</label>
+      <input type="text" id="edit-lc-nome">
+    </div>
+    <div class="field" style="margin-top:10px;">
+      <label>Categoria</label>
+      <input type="text" id="edit-lc-categoria" list="dl-lc-categoria" autocomplete="off">
+    </div>
+    <div class="field" style="margin-top:10px;">
+      <label>Valor estimado (R$)</label>
+      <input type="number" step="0.01" id="edit-lc-valor" placeholder="Opcional">
+    </div>
+    <div class="field" style="margin-top:10px;">
+      <label>Tipo de compra</label>
+      <select id="edit-lc-tipo">
+        <option value="Pontual">Pontual (só desta vez)</option>
+        <option value="Recorrente">Recorrente (se repete)</option>
+      </select>
+    </div>
+    <div class="row" id="edit-lc-campos-recorrencia" style="margin-top:10px;">
+      <div class="field">
+        <label>Recorrência</label>
+        <select id="edit-lc-frequencia">
+          <option value="semanal">Semanal</option>
+          <option value="mensal">Mensal</option>
+          <option value="anual">Anual</option>
+          <option value="personalizada">Personalizada (a cada X dias)</option>
+        </select>
+      </div>
+      <div class="field hidden" id="edit-lc-campo-intervalo">
+        <label>A cada quantos dias</label>
+        <input type="number" min="1" id="edit-lc-intervalo-dias">
+      </div>
+    </div>
+    <div class="field" style="margin-top:10px;">
+      <label>Descrição</label>
+      <input type="text" id="edit-lc-descricao">
+    </div>
+    <div class="field" style="margin-top:10px;">
+      <label>Status</label>
+      <select id="edit-lc-status">
+        <option value="Pendente">Pendente</option>
+        <option value="Comprado">Comprado</option>
+        <option value="Cancelado">Cancelado</option>
+      </select>
+    </div>
+    <div class="row" style="justify-content:space-between; margin-top:18px;">
+      <button class="btn btn-danger" id="btn-excluir-item-compra">Excluir</button>
+      <div class="row" style="width:auto;">
+        <button class="btn" id="btn-cancelar-edicao-item-compra">Cancelar</button>
+        <button class="btn btn-primary" id="btn-salvar-edicao-item-compra">Salvar alterações</button>
+      </div>
     </div>
   </div>
 </div>

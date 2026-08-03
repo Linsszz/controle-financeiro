@@ -111,6 +111,16 @@ service cloud.firestore {
       }
     }
 
+    match /listaCompras/{id} {
+      allow read: if true;
+      allow create, update: if request.resource.data.nome is string
+                    && request.resource.data.nome.size() > 0
+                    && request.resource.data.nome.size() < 200
+                    && (request.resource.data.tipoCompra == 'Recorrente' || request.resource.data.tipoCompra == 'Pontual')
+                    && (request.resource.data.status == 'Pendente' || request.resource.data.status == 'Comprado' || request.resource.data.status == 'Cancelado');
+      allow delete: if true;
+    }
+
     // ══════════════ CONEXÕES BANCÁRIAS (Open Finance via Pluggy) ══════════════
     // Só leitura de extratos/transações pra importar como movimentações —
     // nenhum caminho de escrita de volta pro banco existe neste sistema.
