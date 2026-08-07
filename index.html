@@ -40,6 +40,7 @@
   <nav>
     <a data-view="dashboard" class="active"><span class="ico">📊</span>Dashboard</a>
     <a data-view="movimentacoes"><span class="ico">💸</span>Movimentações</a>
+    <a data-view="contasPagar"><span class="ico">🧾</span>Contas a Pagar</a>
     <a data-view="lancamentos"><span class="ico">🏷️</span>Lançamentos</a>
     <a data-view="cartao"><span class="ico">💳</span>Cartão de Crédito</a>
     <a data-view="conexoes"><span class="ico">🏦</span>Conexões Bancárias</a>
@@ -62,11 +63,13 @@
       <div class="empty">Carregando indicadores…</div>
     </div>
     <div class="card">
-      <h2>Últimas movimentações</h2>
+      <h2>Todas as movimentações</h2>
+      <p class="view-desc" style="margin-bottom:14px;">Navegue por todo o histórico, da mais recente pra mais antiga, sem precisar trocar de aba.</p>
       <table>
         <thead><tr><th>Data</th><th>Lançamento</th><th>Tipo</th><th>Valor</th><th>Situação</th></tr></thead>
         <tbody id="dash-movs-body"><tr><td colspan="5" class="empty">Carregando…</td></tr></tbody>
       </table>
+      <div class="paginacao" id="dash-paginacao"></div>
     </div>
   </section>
 
@@ -154,6 +157,39 @@
       <table>
         <thead><tr><th>Data</th><th>Lançamento</th><th>Banco</th><th>Tipo</th><th>Categoria</th><th>Quem comprou</th><th>Valor</th><th>Situação</th></tr></thead>
         <tbody id="movs-body"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- CONTAS A PAGAR -->
+  <section id="view-contasPagar" class="view">
+    <header class="top"><div><h1>Contas a Pagar</h1>
+      <p class="view-desc">Tudo que é <strong>saída</strong> no mês escolhido, separado entre o que ainda falta pagar e o que já foi pago. Clique na etiqueta de situação pra marcar como pago assim que você quitar a conta, ou na linha pra ver/editar os detalhes.</p>
+    </div></header>
+    <div class="card">
+      <div class="row">
+        <div class="field" style="max-width:180px;">
+          <label>Mês</label>
+          <input type="month" id="cp-filtro-mes">
+        </div>
+        <button class="btn" id="btn-cp-mes-atual">Mês atual</button>
+      </div>
+      <div class="kpi-grid" id="cp-kpi-grid" style="margin-top:16px;"></div>
+    </div>
+
+    <div class="card">
+      <h2>Falta pagar</h2>
+      <table>
+        <thead><tr><th>Vencimento</th><th>Lançamento</th><th>Categoria</th><th>Quem comprou</th><th>Valor</th><th>Situação</th></tr></thead>
+        <tbody id="cp-pendentes-body"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>Já pago</h2>
+      <table>
+        <thead><tr><th>Vencimento</th><th>Lançamento</th><th>Categoria</th><th>Quem comprou</th><th>Valor</th><th>Situação</th></tr></thead>
+        <tbody id="cp-pagas-body"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
       </table>
     </div>
   </section>

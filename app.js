@@ -40,7 +40,9 @@ const STATE = {
   filtroLCTipo: "",
   filtroLCCategoria: "",
   filtroLCStatus: "",
-  filtroLCOrdenar: "data"
+  filtroLCOrdenar: "data",
+  dashPaginaAtual: 1,
+  filtroCPMes: ""
 };
 
 let recorrentesCarregados = false;
@@ -334,6 +336,7 @@ function renderAll() {
   renderRecorrentes();
   renderHistorico();
   renderDashboard();
+  renderContasAPagar();
 }
 
 function renderLancamentos() {
@@ -690,8 +693,10 @@ function renderMovimentacoes() {
   }
 
   renderMovKpis(filtradas);
-  renderDashMovs(enriquecidas.slice(0, 8));
+  renderDashMovs(enriquecidas);
 }
+
+const DASH_PAGE_SIZE = 20;
 
 document.getElementById("mov-filtro-mes-de").addEventListener("change", (e) => {
   STATE.filtroMovMesDe = e.target.value;
@@ -709,19 +714,117 @@ document.getElementById("btn-mov-todos-meses").addEventListener("click", () => {
   renderMovimentacoes();
 });
 
+// Paginado (não só as últimas N) — assim dá pra navegar por todo o
+// histórico direto do Dashboard, sem precisar ir na aba Movimentações.
+// A lista já chega ordenada da mais recente pra mais antiga (Firestore
+// devolve "movimentacoes" com orderBy("data","desc")).
 function renderDashMovs(movs) {
+  const totalPaginas = Math.max(1, Math.ceil(movs.length / DASH_PAGE_SIZE));
+  if (STATE.dashPaginaAtual > totalPaginas) STATE.dashPaginaAtual = totalPaginas;
+  if (STATE.dashPaginaAtual < 1) STATE.dashPaginaAtual = 1;
+  const inicio = (STATE.dashPaginaAtual - 1) * DASH_PAGE_SIZE;
+  const pagina = movs.slice(inicio, inicio + DASH_PAGE_SIZE);
+
   const body = document.getElementById("dash-movs-body");
   if (!movs.length) {
     body.innerHTML = '<tr><td colspan="5" class="empty">Nenhuma movimentação registrada ainda.</td></tr>';
+  } else {
+    body.innerHTML = pagina.map((m) => (
+      `<tr><td>${dataBR(m.data)}</td><td>${esc(m.nomeLancamento)}${m.descricaoCompra ? `<span class="sublabel">${esc(m.descricaoCompra)}</span>` : ""}</td>` +
+      `<td><span class="badge-tipo ${m.tipo}">${m.tipo === "Entrada" ? "Entrada" : (m.tipo ? "Saída" : "")}</span></td>` +
+      `<td class="num">${moeda(m.valor)}</td>` +
+      `<td><span class="stamp ${m.pago ? "pago" : "pendente"}">${m.pago ? "PAGO" : "PENDENTE"}</span></td></tr>`
+    )).join("");
+  }
+
+  const pgEl = document.getElementById("dash-paginacao");
+  if (!movs.length) { pgEl.innerHTML = ""; return; }
+  pgEl.innerHTML =
+    `<button class="btn-small" id="dash-pg-anterior" ${STATE.dashPaginaAtual <= 1 ? "disabled" : ""}>‹ Anterior</button>` +
+    `<span class="pg-info">Página ${STATE.dashPaginaAtual} de ${totalPaginas} · ${movs.length} no total</span>` +
+    `<button class="btn-small" id="dash-pg-proxima" ${STATE.dashPaginaAtual >= totalPaginas ? "disabled" : ""}>Próxima ›</button>`;
+  const btnAnterior = document.getElementById("dash-pg-anterior");
+  const btnProxima = document.getElementById("dash-pg-proxima");
+  if (btnAnterior) btnAnterior.addEventListener("click", () => { STATE.dashPaginaAtual--; renderDashMovs(movs); });
+  if (btnProxima) btnProxima.addEventListener("click", () => { STATE.dashPaginaAtual++; renderDashMovs(movs); });
+}
+
+/* ══════════════ CONTAS A PAGAR ══════════════ */
+
+function filtrarContasPorMes(lista) {
+  if (!STATE.filtroCPMes) return lista;
+  return lista.filter((m) => String(m.data || "").slice(0, 7) === STATE.filtroCPMes);
+}
+
+// Reaproveita a mesma coleção "movimentacoes" já usada em Movimentações e
+// no Dashboard — "conta a pagar" aqui é toda movimentação de Saída (mês
+// escolhido), separada só pelo campo "pago". Marcar como paga usa a mesma
+// função alternarPagamento(), e clicar na linha abre o mesmo modal de
+// edição de Movimentações — não existe cadastro paralelo pra manter.
+function renderContasAPagar() {
+  const mapaLanc = mapaLancamentos();
+  const conexoesAtivas = conexoesAtivasParaPessoal();
+  const saidas = STATE.movimentacoes
+    .filter((m) => movimentacaoVisivel(m, conexoesAtivas))
+    .map((m) => {
+      const l = mapaLanc[m.lancamentoId] || {};
+      return { ...m, nomeLancamento: l.nome || "(excluído)", tipo: l.tipo || "", categoria: l.categoria || "" };
+    })
+    .filter((m) => m.tipo === "Saida");
+
+  const doMes = filtrarContasPorMes(saidas);
+  const pendentes = doMes.filter((m) => !m.pago).sort((a, b) => (a.data < b.data ? -1 : 1));
+  const pagas = doMes.filter((m) => m.pago).sort((a, b) => (a.data < b.data ? -1 : 1));
+
+  const totalPendente = pendentes.reduce((s, m) => s + (Number(m.valor) || 0), 0);
+  const totalPago = pagas.reduce((s, m) => s + (Number(m.valor) || 0), 0);
+  const totalGeral = totalPendente + totalPago;
+
+  document.getElementById("cp-kpi-grid").innerHTML =
+    kpiCard("Falta pagar no mês", moeda(totalPendente) + ` <small>(${pendentes.length})</small>`, totalPendente === 0) +
+    kpiCard("Já pago no mês", moeda(totalPago) + ` <small>(${pagas.length})</small>`, true) +
+    kpiCard("Total de contas no mês", moeda(totalGeral), true);
+
+  renderContasLista("cp-pendentes-body", pendentes, "Nenhuma conta a pagar neste mês.");
+  renderContasLista("cp-pagas-body", pagas, "Nenhuma conta paga neste mês ainda.");
+}
+
+function renderContasLista(bodyId, lista, msgVazio) {
+  const body = document.getElementById(bodyId);
+  if (!lista.length) {
+    body.innerHTML = `<tr><td colspan="6" class="empty">${msgVazio}</td></tr>`;
     return;
   }
-  body.innerHTML = movs.map((m) => (
-    `<tr><td>${dataBR(m.data)}</td><td>${esc(m.nomeLancamento)}${m.descricaoCompra ? `<span class="sublabel">${esc(m.descricaoCompra)}</span>` : ""}</td>` +
-    `<td><span class="badge-tipo ${m.tipo}">${m.tipo === "Entrada" ? "Entrada" : (m.tipo ? "Saída" : "")}</span></td>` +
-    `<td class="num">${moeda(m.valor)}</td>` +
-    `<td><span class="stamp ${m.pago ? "pago" : "pendente"}">${m.pago ? "PAGO" : "PENDENTE"}</span></td></tr>`
+  body.innerHTML = lista.map((m) => (
+    `<tr class="linha-clicavel" data-abrir-mov="${m.id}"><td>${dataBR(m.data)}</td><td>${esc(m.nomeLancamento)}</td>` +
+    `<td>${esc(m.categoria)}</td><td>${esc(m.responsavel || "")}</td><td class="num">${moeda(m.valor)}</td>` +
+    `<td><span class="stamp ${m.pago ? "pago" : "pendente"}" data-alternar-pagamento="${m.id}" data-novo-pago="${!m.pago}">${m.pago ? "PAGO" : "PENDENTE"}</span></td></tr>`
   )).join("");
+  body.querySelectorAll("[data-abrir-mov]").forEach((tr) => {
+    tr.addEventListener("click", (e) => {
+      if (e.target.closest("[data-alternar-pagamento]")) return;
+      abrirModalMovimentacao(tr.dataset.abrirMov);
+    });
+  });
+  body.querySelectorAll("[data-alternar-pagamento]").forEach((stamp) => {
+    stamp.addEventListener("click", (e) => {
+      e.stopPropagation();
+      alternarPagamento(stamp.dataset.alternarPagamento, stamp.dataset.novoPago === "true");
+    });
+  });
 }
+
+document.getElementById("cp-filtro-mes").addEventListener("change", (e) => {
+  STATE.filtroCPMes = e.target.value;
+  renderContasAPagar();
+});
+document.getElementById("btn-cp-mes-atual").addEventListener("click", () => {
+  const hoje = new Date();
+  const mesAtual = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`;
+  STATE.filtroCPMes = mesAtual;
+  document.getElementById("cp-filtro-mes").value = mesAtual;
+  renderContasAPagar();
+});
 
 function renderCartaoKpis() {
   let totalLimite = 0, totalUtilizado = 0;
@@ -2806,6 +2909,7 @@ function iniciarListeners() {
     renderComprasParceladas();
     renderParcelasCartao();
     renderMovimentacoes();
+    renderContasAPagar();
   }, (err) => mostrarToast("Erro ao carregar compras parceladas: " + err.message, true));
 
   onSnapshot(collection(db, "recorrentes"), (snap) => {
@@ -2840,6 +2944,7 @@ function iniciarListeners() {
     renderConexoes();
     renderMovimentacoes();
     renderDashboard();
+    renderContasAPagar();
     // Sincroniza cada conexão automaticamente uma vez por sessão (assim que
     // o app abre), sem precisar clicar em "Sincronizar agora" — a guarda
     // por Set evita loop, já que a própria sincronização reescreve o
@@ -2886,6 +2991,8 @@ document.getElementById("mov-filtro-mes-de").value = mesInicial;
 document.getElementById("mov-filtro-mes-ate").value = mesInicial;
 STATE.filtroMovMesDe = mesInicial;
 STATE.filtroMovMesAte = mesInicial;
+document.getElementById("cp-filtro-mes").value = mesInicial;
+STATE.filtroCPMes = mesInicial;
 
 iniciarBuscaLancamento();
 iniciarListeners();

@@ -100,6 +100,11 @@ tbody tr.linha-clicavel{cursor:pointer;}
 
 .empty{color:var(--ink-faint);font-style:italic;padding:22px 0;text-align:center;}
 
+.paginacao{display:flex;align-items:center;justify-content:center;gap:14px;margin-top:16px;}
+.paginacao .pg-info{font-size:12.5px;color:var(--ink-soft);font-weight:600;min-width:110px;text-align:center;}
+.paginacao .btn-small:disabled{opacity:.4;cursor:default;}
+.paginacao .btn-small:disabled:hover{background:transparent;color:var(--roxo);}
+
 .sublabel{display:block;font-size:11px;color:var(--ink-faint);margin-top:2px;font-weight:500;}
 
 .campo-alterado{font-family:var(--mono);font-size:11.5px;background:var(--accent-soft);color:var(--roxo);padding:3px 9px;border-radius:6px;}
