@@ -112,6 +112,12 @@ function mesAtualISO() {
   return `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`;
 }
 
+// Quantidade de dias de um mês no formato "yyyy-MM".
+function diasNoMes(mesStr) {
+  const [ano, mes] = String(mesStr).split("-").map(Number);
+  return new Date(ano, mes, 0).getDate();
+}
+
 function tsParaMillis(ts) {
   if (!ts) return Date.now();
   if (ts.toMillis) return ts.toMillis();
@@ -266,46 +272,50 @@ function calcularFaturaMesAtual(cartaoId) {
   return total;
 }
 
-// "Saldo atual" é o saldo real de hoje (soma tudo que já foi pago/recebido
-// até agora, independente do mês escolhido no filtro do Dashboard) — não
-// faz sentido esse número mudar só porque a pessoa olhou um mês passado ou
-// futuro. Já entradasMes/saidasMes/saldoMes ficam presos ao "mes" recebido,
-// pra não misturar conta de um mês com a de outro (ex: parcela de cartão
-// que só vence no mês seguinte não deve aparecer no cálculo do mês atual).
+// "Saldo atual" agora é só do mês escolhido: recebido (entradas pagas) menos
+// pago (saídas pagas) — bate com a ideia de "quanto sobrou na conta", sem
+// misturar contas de outros meses. O "saldo inicial" configurado (aba
+// Configurações, "o que você tem em caixa hoje") só entra quando o mês
+// escolhido é o mês corrente de verdade — pra mês passado/futuro ele não
+// faz sentido, porque não representa o caixa daquele período.
 function calcularDashboard(mes) {
   const mapaLanc = mapaLancamentos();
   const saldoInicial = Number(STATE.config.saldoInicial) || 0;
+  const mesAtual = mesAtualISO();
 
-  let saldoAtual = saldoInicial;
   let entradasMes = 0;
   let saidasMes = 0;
   let entradasPagasMes = 0;
   let saidasPagasMes = 0;
 
   STATE.movimentacoes.forEach((m) => {
+    if (String(m.data || "").slice(0, 7) !== mes) return;
     const l = mapaLanc[m.lancamentoId] || {};
     const valor = Number(m.valor) || 0;
-    const ehSaida = l.tipo === "Saida";
-    const ehEntrada = l.tipo === "Entrada";
-
-    if (m.pago === true) saldoAtual += ehSaida ? -valor : valor;
-
-    if (String(m.data || "").slice(0, 7) !== mes) return;
-    if (ehEntrada) {
+    if (l.tipo === "Entrada") {
       entradasMes += valor;
       if (m.pago === true) entradasPagasMes += valor;
-    } else if (ehSaida) {
+    } else if (l.tipo === "Saida") {
       saidasMes += valor;
       if (m.pago === true) saidasPagasMes += valor;
     }
   });
 
-  // O que sobra pra gastar no mês: tudo que entra menos tudo que precisa
-  // sair (pago ou ainda não) — é o "quanto ainda posso gastar", não só o
-  // que já foi de fato pago.
-  const saldoMes = entradasMes - saidasMes;
+  const saldoAtual = entradasPagasMes - saidasPagasMes + (mes === mesAtual ? saldoInicial : 0);
 
-  return { saldoAtual, entradasMes, saidasMes, saldoMes, entradasPagasMes, saidasPagasMes };
+  // Dias restantes: mês passado já não tem mais dias pra gastar; mês futuro
+  // conta com o mês inteiro (ainda não começou); mês corrente conta de hoje
+  // até o fim do mês.
+  let diasRestantes;
+  if (mes < mesAtual) diasRestantes = 0;
+  else if (mes > mesAtual) diasRestantes = diasNoMes(mes);
+  else {
+    const hoje = new Date();
+    diasRestantes = diasNoMes(mes) - hoje.getDate() + 1;
+  }
+  const gastoPorDia = diasRestantes > 0 ? saldoAtual / diasRestantes : 0;
+
+  return { saldoAtual, entradasMes, saidasMes, entradasPagasMes, saidasPagasMes, diasRestantes, gastoPorDia };
 }
 
 /* ══════════════ NAVEGAÇÃO ══════════════ */
@@ -700,7 +710,6 @@ function renderMovimentacoes() {
   }
 
   renderMovKpis(filtradas);
-  renderDashMovs(enriquecidas);
 }
 
 const DASH_PAGE_SIZE = 20;
@@ -1382,8 +1391,31 @@ function renderDashboard() {
     kpiCard("Saldo atual", moeda(d.saldoAtual), d.saldoAtual >= 0) +
     kpiCard("Renda do mês", moeda(d.entradasMes), true) +
     kpiCard("Total a pagar no mês", moeda(d.saidasMes), true) +
-    kpiCard("Saldo do mês — quanto ainda pode gastar", moeda(d.saldoMes), d.saldoMes >= 0) +
-    kpiCard("Já pago no mês", moeda(d.saidasPagasMes), true);
+    kpiCard("Já pago no mês", moeda(d.saidasPagasMes), true) +
+    kpiCard("Quanto posso gastar por dia", moeda(d.gastoPorDia) + ` <small>(${d.diasRestantes} dias)</small>`, d.gastoPorDia >= 0);
+  renderDashboardMovs(mes);
+}
+
+// Só as movimentações do mês escolhido — uma parcela futura (ex: mês que
+// vem) só aparece aqui quando o mês dela chegar e virar o mês selecionado
+// (o filtro já nasce no mês corrente de verdade a cada vez que o app abre).
+function renderDashboardMovs(mes) {
+  const mapaLanc = mapaLancamentos();
+  const mapaCompra = {};
+  STATE.comprasParceladas.forEach((c) => (mapaCompra[c.id] = c));
+  const conexoesAtivas = conexoesAtivasParaPessoal();
+  const doMes = STATE.movimentacoes
+    .filter((m) => movimentacaoVisivel(m, conexoesAtivas))
+    .filter((m) => String(m.data || "").slice(0, 7) === mes)
+    .map((m) => {
+      const l = mapaLanc[m.lancamentoId] || {};
+      const compra = m.compraParceladaId ? mapaCompra[m.compraParceladaId] : null;
+      return {
+        ...m, nomeLancamento: l.nome || "(excluído)", tipo: l.tipo || "",
+        descricaoCompra: compra ? compra.descricao : ""
+      };
+    });
+  renderDashMovs(doMes);
 }
 
 document.getElementById("dash-filtro-mes").addEventListener("change", (e) => {
