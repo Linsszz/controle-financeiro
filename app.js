@@ -42,7 +42,8 @@ const STATE = {
   filtroLCStatus: "",
   filtroLCOrdenar: "data",
   dashPaginaAtual: 1,
-  filtroCPMes: ""
+  filtroCPMes: "",
+  filtroDashMes: ""
 };
 
 let recorrentesCarregados = false;
@@ -102,6 +103,13 @@ function formatarDataISO(d) {
   const mes = String(d.getMonth() + 1).padStart(2, "0");
   const dia = String(d.getDate()).padStart(2, "0");
   return `${ano}-${mes}-${dia}`;
+}
+
+// "yyyy-MM" de hoje — usado como padrão nos filtros de mês (Dashboard,
+// Contas a Pagar) sempre que a pessoa ainda não escolheu um mês.
+function mesAtualISO() {
+  const hoje = new Date();
+  return `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`;
 }
 
 function tsParaMillis(ts) {
@@ -258,47 +266,46 @@ function calcularFaturaMesAtual(cartaoId) {
   return total;
 }
 
-function calcularDashboard() {
+// "Saldo atual" é o saldo real de hoje (soma tudo que já foi pago/recebido
+// até agora, independente do mês escolhido no filtro do Dashboard) — não
+// faz sentido esse número mudar só porque a pessoa olhou um mês passado ou
+// futuro. Já entradasMes/saidasMes/saldoMes ficam presos ao "mes" recebido,
+// pra não misturar conta de um mês com a de outro (ex: parcela de cartão
+// que só vence no mês seguinte não deve aparecer no cálculo do mês atual).
+function calcularDashboard(mes) {
   const mapaLanc = mapaLancamentos();
-  const rendaMensal = Number(STATE.config.rendaMensal) || 0;
   const saldoInicial = Number(STATE.config.saldoInicial) || 0;
 
-  const hoje = new Date();
-  const anoMes = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`;
-
   let saldoAtual = saldoInicial;
-  let saidasNaoPagas = 0;
-  let entradasNaoPagas = 0;
+  let entradasMes = 0;
+  let saidasMes = 0;
+  let entradasPagasMes = 0;
   let saidasPagasMes = 0;
-  let parcelasCartaoFuturas = 0;
 
   STATE.movimentacoes.forEach((m) => {
     const l = mapaLanc[m.lancamentoId] || {};
     const valor = Number(m.valor) || 0;
     const ehSaida = l.tipo === "Saida";
-    const dataAnoMes = String(m.data || "").slice(0, 7);
+    const ehEntrada = l.tipo === "Entrada";
 
-    if (m.pago === true) {
-      saldoAtual += ehSaida ? -valor : valor;
-      if (ehSaida && dataAnoMes === anoMes) saidasPagasMes += valor;
-    } else {
-      if (ehSaida) saidasNaoPagas += valor;
-      else entradasNaoPagas += valor;
-      if (m.cartaoId) parcelasCartaoFuturas += valor;
+    if (m.pago === true) saldoAtual += ehSaida ? -valor : valor;
+
+    if (String(m.data || "").slice(0, 7) !== mes) return;
+    if (ehEntrada) {
+      entradasMes += valor;
+      if (m.pago === true) entradasPagasMes += valor;
+    } else if (ehSaida) {
+      saidasMes += valor;
+      if (m.pago === true) saidasPagasMes += valor;
     }
   });
 
-  const saldoPrevisto = saldoAtual - saidasNaoPagas + entradasNaoPagas;
+  // O que sobra pra gastar no mês: tudo que entra menos tudo que precisa
+  // sair (pago ou ainda não) — é o "quanto ainda posso gastar", não só o
+  // que já foi de fato pago.
+  const saldoMes = entradasMes - saidasMes;
 
-  const diaAtual = hoje.getDate();
-  const ultimoDiaMes = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0).getDate();
-  const diasRestantes = ultimoDiaMes - diaAtual + 1;
-  const gastoSugerido = diasRestantes > 0 ? saldoAtual / diasRestantes : 0;
-
-  const percentualRendaGasta = rendaMensal > 0 ? (saidasPagasMes / rendaMensal) * 100 : 0;
-  const gastoPermitidoAteHoje = rendaMensal > 0 ? (rendaMensal / ultimoDiaMes) * diaAtual : 0;
-
-  return { saldoAtual, saldoPrevisto, gastoSugerido, percentualRendaGasta, gastoPermitidoAteHoje, diasRestantes, parcelasCartaoFuturas };
+  return { saldoAtual, entradasMes, saidasMes, saldoMes, entradasPagasMes, saidasPagasMes };
 }
 
 /* ══════════════ NAVEGAÇÃO ══════════════ */
@@ -1369,15 +1376,25 @@ function kpiCard(label, value, positivo) {
 }
 
 function renderDashboard() {
-  const d = calcularDashboard();
+  const mes = STATE.filtroDashMes || mesAtualISO();
+  const d = calcularDashboard(mes);
   document.getElementById("kpi-grid").innerHTML =
     kpiCard("Saldo atual", moeda(d.saldoAtual), d.saldoAtual >= 0) +
-    kpiCard("Saldo previsto", moeda(d.saldoPrevisto), d.saldoPrevisto >= 0) +
-    kpiCard("Gasto sugerido / dia", moeda(d.gastoSugerido) + ` <small>(${d.diasRestantes} dias)</small>`, d.gastoSugerido >= 0) +
-    kpiCard("% da renda gasta no mês", d.percentualRendaGasta.toFixed(1) + "%", d.percentualRendaGasta <= 100) +
-    kpiCard("Gasto permitido até hoje", moeda(d.gastoPermitidoAteHoje), true) +
-    kpiCard("Parcelas futuras no cartão", moeda(d.parcelasCartaoFuturas), true);
+    kpiCard("Renda do mês", moeda(d.entradasMes), true) +
+    kpiCard("Total a pagar no mês", moeda(d.saidasMes), true) +
+    kpiCard("Saldo do mês — quanto ainda pode gastar", moeda(d.saldoMes), d.saldoMes >= 0) +
+    kpiCard("Já pago no mês", moeda(d.saidasPagasMes), true);
 }
+
+document.getElementById("dash-filtro-mes").addEventListener("change", (e) => {
+  STATE.filtroDashMes = e.target.value;
+  renderDashboard();
+});
+document.getElementById("btn-dash-mes-atual").addEventListener("click", () => {
+  STATE.filtroDashMes = mesAtualISO();
+  document.getElementById("dash-filtro-mes").value = STATE.filtroDashMes;
+  renderDashboard();
+});
 
 /* ══════════════ LANÇAMENTOS ══════════════ */
 
@@ -2993,6 +3010,8 @@ STATE.filtroMovMesDe = mesInicial;
 STATE.filtroMovMesAte = mesInicial;
 document.getElementById("cp-filtro-mes").value = mesInicial;
 STATE.filtroCPMes = mesInicial;
+document.getElementById("dash-filtro-mes").value = mesInicial;
+STATE.filtroDashMes = mesInicial;
 
 iniciarBuscaLancamento();
 iniciarListeners();

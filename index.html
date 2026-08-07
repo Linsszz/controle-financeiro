@@ -57,8 +57,17 @@
   <!-- DASHBOARD -->
   <section id="view-dashboard" class="view active">
     <header class="top"><div><h1>Dashboard</h1>
-      <p class="view-desc">Visão geral da sua situação financeira: saldo atual, saldo previsto e as últimas movimentações lançadas em qualquer aba do sistema.</p>
+      <p class="view-desc">Visão geral do mês escolhido: quanto entra, quanto precisa pagar, quanto já foi pago e quanto ainda sobra pra gastar.</p>
     </div></header>
+    <div class="card">
+      <div class="row">
+        <div class="field" style="max-width:180px;">
+          <label>Mês</label>
+          <input type="month" id="dash-filtro-mes">
+        </div>
+        <button class="btn" id="btn-dash-mes-atual">Mês atual</button>
+      </div>
+    </div>
     <div class="kpi-grid" id="kpi-grid">
       <div class="empty">Carregando indicadores…</div>
     </div>
