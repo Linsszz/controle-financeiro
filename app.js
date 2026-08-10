@@ -13,7 +13,7 @@
 import { db, PLUGGY_PROXY_URL } from "./firebase-init.js";
 import {
   collection, addDoc, updateDoc, deleteDoc, setDoc, doc, increment,
-  onSnapshot, query, orderBy, serverTimestamp, writeBatch
+  onSnapshot, query, orderBy, where, getDocs, serverTimestamp, writeBatch
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
 
 const STATE = {
@@ -37,13 +37,23 @@ const STATE = {
   filtroMovBanco: "",
   filtroMovTipoConta: "",
   filtroMovRevisado: "",
+  filtroMovTipo: "",
+  buscaLivreMov: "",
+  paginaMov: 1,
   filtroLCTipo: "",
   filtroLCCategoria: "",
   filtroLCStatus: "",
   filtroLCOrdenar: "data",
   dashPaginaAtual: 1,
   filtroCPMes: "",
-  filtroDashMes: ""
+  filtroDashMes: "",
+  filtroDashDe: "",
+  filtroDashAte: "",
+  filtroDashTipo: "",
+  filtroDashBanco: "",
+  filtroDashCategoria: "",
+  filtroDashCategoriasOutras: null,
+  paginaDashTransacoes: 1
 };
 
 let recorrentesCarregados = false;
@@ -493,13 +503,24 @@ function renderAll() {
   renderContasAPagar();
 }
 
+// "Transferencia" é um terceiro tipo de lançamento (troca entre contas) —
+// não é ganho nem gasto de verdade, então fica de fora das somas de
+// Entrada/Saída em relatórios (KPIs, gráficos), mas continua aparecendo
+// normalmente nas listagens.
+function rotuloTipo(tipo) {
+  if (!tipo) return "";
+  if (tipo === "Entrada") return "Entrada";
+  if (tipo === "Transferencia") return "Transferência";
+  return "Saída";
+}
+
 function renderLancamentos() {
   const body = document.getElementById("lancs-body");
   if (!STATE.lancamentos.length) {
     body.innerHTML = '<tr><td colspan="4" class="empty">Nenhum lançamento cadastrado ainda.</td></tr>';
   } else {
     body.innerHTML = STATE.lancamentos.map((l) => (
-      `<tr><td>${esc(l.nome)}</td><td><span class="badge-tipo ${l.tipo}">${l.tipo === "Entrada" ? "Entrada" : "Saída"}</span></td>` +
+      `<tr><td>${esc(l.nome)}</td><td><span class="badge-tipo ${l.tipo}">${rotuloTipo(l.tipo)}</span></td>` +
       `<td>${esc(l.categoria)}</td><td><button class="btn-small" data-editar-lanc="${l.id}">Editar</button></td></tr>`
     )).join("");
     document.querySelectorAll("[data-editar-lanc]").forEach((btn) => {
@@ -521,7 +542,7 @@ const CAMPOS_BUSCA_LANCAMENTO = [
 ];
 
 function rotuloLancamento(l) {
-  return `${l.nome} (${l.tipo === "Entrada" ? "Entrada" : "Saída"} — ${l.categoria})`;
+  return `${l.nome} (${rotuloTipo(l.tipo)} — ${l.categoria})`;
 }
 
 // Cada campo "Lançamento" é, por baixo dos panos, um <input type="hidden">
@@ -711,6 +732,34 @@ function filtrarNaoRevisadas(lista) {
   return lista.filter((m) => m.origem === "Open Finance" && m.revisado !== true);
 }
 
+function filtrarPorTipo(lista) {
+  if (!STATE.filtroMovTipo) return lista;
+  return lista.filter((m) => m.tipo === STATE.filtroMovTipo);
+}
+
+// Um texto só, juntando tudo que aparece na linha (lançamento, banco, tipo,
+// categoria, quem comprou, valor, situação, descrição do banco, parcela...)
+// — é contra isso que a busca livre compara.
+function textoBuscavelMovimentacao(m) {
+  return [
+    m.nomeLancamento, rotuloTipo(m.tipo), m.categoria, m.responsavel,
+    m.instituicao, m.contaTipo === "cartao" ? "cartão" : "", m.descricaoOrigem, m.descricaoCompra,
+    m.pago ? "Pago" : "Pendente", moeda(m.valor), m.parcelaAtual ? `Parcela ${m.parcelaAtual}/${m.parcelaTotal || ""}` : ""
+  ].filter(Boolean).join(" ").toLowerCase();
+}
+
+function filtrarPorBuscaLivre(lista) {
+  const termo = STATE.buscaLivreMov.trim().toLowerCase();
+  if (!termo) return lista;
+  return lista.filter((m) => textoBuscavelMovimentacao(m).includes(termo));
+}
+
+const CATEGORIAS_FATURA_CARTAO = ["Saldo de Fatura", "Débito Fatura"];
+
+function ehMovimentacaoDeCartao(m) {
+  return m.contaTipo === "cartao" || !!m.cartaoId || CATEGORIAS_FATURA_CARTAO.includes(m.categoria);
+}
+
 // Opções do filtro vêm da união de "pessoas" cadastradas + qualquer nome
 // já usado em movimentações (cobre registros antigos com texto livre) —
 // assim ninguém some do filtro só porque não foi formalmente cadastrado.
@@ -755,15 +804,28 @@ document.getElementById("mov-filtro-revisado").addEventListener("change", (e) =>
   renderMovimentacoes();
 });
 
+document.getElementById("mov-busca-livre").addEventListener("input", (e) => {
+  STATE.buscaLivreMov = e.target.value;
+  STATE.paginaMov = 1;
+  renderMovimentacoes();
+});
+document.getElementById("mov-filtro-tipo").addEventListener("change", (e) => {
+  STATE.filtroMovTipo = e.target.value;
+  STATE.paginaMov = 1;
+  renderMovimentacoes();
+});
+
 // Separado por tipo — uma Entrada não paga é dinheiro A RECEBER, não "a
-// pagar". Misturar as duas coisas num único total não fazia sentido.
-function renderMovKpis(filtradas) {
+// pagar". Transferência entre contas não é ganho nem gasto, fica de fora
+// dessas somas (mas continua aparecendo na lista normalmente).
+function renderMovKpis(filtradas, totalCartaoAberto) {
   let pago = 0, qtdPago = 0;
   let aPagar = 0, qtdAPagar = 0;
   let recebido = 0, qtdRecebido = 0;
   let aReceber = 0, qtdAReceber = 0;
 
   filtradas.forEach((m) => {
+    if (m.tipo === "Transferencia") return;
     const valor = Number(m.valor) || 0;
     const ehEntrada = m.tipo === "Entrada";
     if (m.pago) {
@@ -779,8 +841,14 @@ function renderMovKpis(filtradas) {
     kpiCard("Pago no período", moeda(pago) + ` <small>(${qtdPago})</small>`, true) +
     kpiCard("A pagar no período", moeda(aPagar) + ` <small>(${qtdAPagar})</small>`, aPagar === 0) +
     kpiCard("Recebido no período", moeda(recebido) + ` <small>(${qtdRecebido})</small>`, true) +
-    kpiCard("A receber no período", moeda(aReceber) + ` <small>(${qtdAReceber})</small>`, true);
+    kpiCard("A receber no período", moeda(aReceber) + ` <small>(${qtdAReceber})</small>`, true) +
+    // Não é filtrado pelos filtros acima — é sempre o total em aberto agora
+    // no cartão (o que vai virar cobrança no vencimento da fatura). O
+    // detalhe de cada compra fica na aba Cartão de Crédito.
+    kpiCard("A pagar no cartão", moeda(totalCartaoAberto), totalCartaoAberto === 0);
 }
+
+const PAGINA_MOV_TAMANHO = 30;
 
 function renderMovimentacoes() {
   const mapaLanc = mapaLancamentos();
@@ -798,17 +866,27 @@ function renderMovimentacoes() {
       };
     });
 
+  const totalCartaoAberto = enriquecidas
+    .filter((m) => ehMovimentacaoDeCartao(m) && m.pago !== true)
+    .reduce((s, m) => s + (Number(m.valor) || 0), 0);
+
   preencherFiltroPessoa(enriquecidas);
   preencherFiltroBanco(enriquecidas);
-  const filtradas = filtrarNaoRevisadas(filtrarPorTipoConta(filtrarPorBanco(filtrarPorPessoa(filtrarPorMes(enriquecidas)))));
+  const filtradas = filtrarPorBuscaLivre(filtrarPorTipo(filtrarNaoRevisadas(filtrarPorTipoConta(filtrarPorBanco(filtrarPorPessoa(filtrarPorMes(enriquecidas)))))));
+
+  const totalPaginasMov = Math.max(1, Math.ceil(filtradas.length / PAGINA_MOV_TAMANHO));
+  STATE.paginaMov = Math.min(Math.max(1, STATE.paginaMov), totalPaginasMov);
+  const inicioPaginaMov = (STATE.paginaMov - 1) * PAGINA_MOV_TAMANHO;
+  const paginadas = filtradas.slice(inicioPaginaMov, inicioPaginaMov + PAGINA_MOV_TAMANHO);
 
   const body = document.getElementById("movs-body");
   if (!filtradas.length) {
     const temFiltro = STATE.filtroMovMesDe || STATE.filtroMovMesAte || STATE.filtroMovPessoa
-      || STATE.filtroMovBanco || STATE.filtroMovTipoConta || STATE.filtroMovRevisado;
+      || STATE.filtroMovBanco || STATE.filtroMovTipoConta || STATE.filtroMovRevisado
+      || STATE.filtroMovTipo || STATE.buscaLivreMov;
     body.innerHTML = `<tr><td colspan="8" class="empty">${temFiltro ? "Nenhuma movimentação com esse filtro." : "Nenhuma movimentação registrada ainda."}</td></tr>`;
   } else {
-    body.innerHTML = filtradas.map((m) => {
+    body.innerHTML = paginadas.map((m) => {
       const aRevisar = m.origem === "Open Finance" && m.revisado !== true;
       const ehPrevisao = m.previsao === true;
       // Mostra o banco tanto pra transação já confirmada (origem "Open
@@ -821,16 +899,24 @@ function renderMovimentacoes() {
       const rotuloParcela = m.parcelaAtual
         ? `Parcela ${m.parcelaAtual}${m.parcelaTotal ? "/" + m.parcelaTotal : ""}${m.valorTotalCompra ? ` (total ${moeda(m.valorTotalCompra)})` : ""}`
         : "";
+      // Pra cartão, "data" é o vencimento da fatura, não quando a compra
+      // aconteceu — mostra a data real como referência quando for
+      // diferente, senão fica parecendo que a compra foi feita no dia do
+      // vencimento.
+      const rotuloDataReal = (m.dataTransacaoReal && m.dataTransacaoReal !== m.data)
+        ? `Comprado em ${dataBR(m.dataTransacaoReal)}`
+        : "";
       const sublabels = [
         m.descricaoCompra,
         rotuloParcela,
-        m.descricaoOrigem
+        m.descricaoOrigem,
+        rotuloDataReal
       ].filter(Boolean).map((s) => `<span class="sublabel">${esc(s)}</span>`).join("");
       return (
         `<tr class="linha-clicavel" data-abrir-mov="${m.id}">` +
         `<td>${dataBR(m.data)}</td><td>${esc(m.nomeLancamento)}${aRevisar ? ' <span class="stamp revisar">A REVISAR</span>' : ""}${ehPrevisao ? ' <span class="stamp reconexao">PREVISÃO</span>' : ""}${sublabels}</td>` +
         `<td>${colunaBanco}</td>` +
-        `<td><span class="badge-tipo ${m.tipo}">${m.tipo === "Entrada" ? "Entrada" : (m.tipo ? "Saída" : "")}</span></td>` +
+        `<td><span class="badge-tipo ${m.tipo}">${rotuloTipo(m.tipo)}</span></td>` +
         `<td>${esc(m.categoria)}</td><td>${esc(m.responsavel || "")}</td><td class="num">${moeda(m.valor)}</td>` +
         `<td><span class="stamp ${m.pago ? "pago" : "pendente"}" data-alternar-pagamento="${m.id}" data-novo-pago="${!m.pago}">${m.pago ? "PAGO" : "PENDENTE"}</span></td></tr>`
       );
@@ -846,7 +932,18 @@ function renderMovimentacoes() {
     });
   }
 
-  renderMovKpis(filtradas);
+  const paginacaoMov = document.getElementById("mov-paginacao");
+  paginacaoMov.innerHTML = filtradas.length ? (
+    `<button class="btn btn-small" id="btn-mov-pag-anterior" ${STATE.paginaMov <= 1 ? "disabled" : ""}>‹ Anterior</button>` +
+    `<span>Página ${STATE.paginaMov} de ${totalPaginasMov} — ${filtradas.length} movimentação(ões)</span>` +
+    `<button class="btn btn-small" id="btn-mov-pag-proxima" ${STATE.paginaMov >= totalPaginasMov ? "disabled" : ""}>Próxima ›</button>`
+  ) : "";
+  const btnMovAnterior = document.getElementById("btn-mov-pag-anterior");
+  if (btnMovAnterior) btnMovAnterior.addEventListener("click", () => { STATE.paginaMov--; renderMovimentacoes(); });
+  const btnMovProxima = document.getElementById("btn-mov-pag-proxima");
+  if (btnMovProxima) btnMovProxima.addEventListener("click", () => { STATE.paginaMov++; renderMovimentacoes(); });
+
+  renderMovKpis(filtradas, totalCartaoAberto);
 }
 
 const DASH_PAGE_SIZE = 20;
@@ -884,7 +981,7 @@ function renderDashMovs(movs) {
   } else {
     body.innerHTML = pagina.map((m) => (
       `<tr><td>${dataBR(m.data)}</td><td>${esc(m.nomeLancamento)}${m.descricaoCompra ? `<span class="sublabel">${esc(m.descricaoCompra)}</span>` : ""}</td>` +
-      `<td><span class="badge-tipo ${m.tipo}">${m.tipo === "Entrada" ? "Entrada" : (m.tipo ? "Saída" : "")}</span></td>` +
+      `<td><span class="badge-tipo ${m.tipo}">${rotuloTipo(m.tipo)}</span></td>` +
       `<td class="num">${moeda(m.valor)}</td>` +
       `<td><span class="stamp ${m.pago ? "pago" : "pendente"}">${m.pago ? "PAGO" : "PENDENTE"}</span></td></tr>`
     )).join("");
@@ -1521,18 +1618,441 @@ function kpiCard(label, value, positivo) {
   );
 }
 
+// Indicadores adicionais do Dashboard, sempre relativos a HOJE (não ao mês
+// escolhido no filtro "Mês" acima) — saldo previsto olhando pendências, %
+// da renda já gasta no mês corrente, quanto já podia ter gasto até hoje e o
+// total de parcelas de cartão ainda em aberto (qualquer mês). Cálculo
+// independente do "Saldo atual" (que fica só no mês escolhido).
+function calcularIndicadoresGeraisDash() {
+  const mapaLanc = mapaLancamentos();
+  const rendaMensal = Number(STATE.config.rendaMensal) || 0;
+  const saldoInicial = Number(STATE.config.saldoInicial) || 0;
+
+  const hoje = new Date();
+  const anoMes = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`;
+
+  let saldoAtual = saldoInicial;
+  let saidasNaoPagas = 0;
+  let entradasNaoPagas = 0;
+  let saidasPagasMes = 0;
+  let parcelasCartaoFuturas = 0;
+
+  const conexoesAtivas = conexoesAtivasParaPessoal();
+  STATE.movimentacoes.forEach((m) => {
+    if (!movimentacaoVisivel(m, conexoesAtivas)) return;
+    const l = mapaLanc[m.lancamentoId] || {};
+    const valor = Number(m.valor) || 0;
+    const ehSaida = l.tipo === "Saida";
+    const dataAnoMes = String(m.data || "").slice(0, 7);
+    const ehCartao = m.contaTipo === "cartao" || !!m.cartaoId;
+    const ehTransferencia = l.tipo === "Transferencia";
+
+    if (m.pago === true) {
+      if (!ehCartao) saldoAtual += ehSaida ? -valor : valor;
+      if (!ehTransferencia && ehSaida && dataAnoMes === anoMes) saidasPagasMes += valor;
+    } else {
+      if (!ehTransferencia) {
+        if (ehSaida) saidasNaoPagas += valor;
+        else entradasNaoPagas += valor;
+      }
+      if (m.cartaoId) parcelasCartaoFuturas += valor;
+    }
+  });
+
+  const saldoPrevisto = saldoAtual - saidasNaoPagas + entradasNaoPagas;
+  const diaAtual = hoje.getDate();
+  const ultimoDiaMes = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0).getDate();
+  const percentualRendaGasta = rendaMensal > 0 ? (saidasPagasMes / rendaMensal) * 100 : 0;
+  const gastoPermitidoAteHoje = rendaMensal > 0 ? (rendaMensal / ultimoDiaMes) * diaAtual : 0;
+
+  return { saldoPrevisto, percentualRendaGasta, gastoPermitidoAteHoje, parcelasCartaoFuturas };
+}
+
+/* ══════════════ DASHBOARD: PAINEL DE PERÍODO (filtros + gráficos + transações) ══════════════
+ *
+ * Seção adicional abaixo da já existente — trabalha com um intervalo de
+ * datas livre (De/Até) em vez do filtro "Mês" acima, e nunca conta
+ * movimentação de cartão nem transferência entre contas.
+ */
+
+const CORES_CATEGORICAS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"];
+const COR_OUTRAS = "#9AA7BD";
+
+// Movimentações "normais" (sem cartão, sem transferência) dentro de um
+// intervalo de datas — base compartilhada pelos KPIs de período e pelo
+// gráfico de categorias.
+function movimentacoesNoPeriodo(de, ate) {
+  const mapaLanc = mapaLancamentos();
+  const conexoesAtivas = conexoesAtivasParaPessoal();
+  return STATE.movimentacoes
+    .filter((m) => movimentacaoVisivel(m, conexoesAtivas))
+    .map((m) => {
+      const l = mapaLanc[m.lancamentoId] || {};
+      const nomeLancamento = l.nome || "(excluído)";
+      const usaDescricaoComoTitulo = m.origem === "Open Finance" && !!m.descricaoOrigem && nomeLancamento === "Importado do banco";
+      return {
+        ...m, tipo: l.tipo || "", categoria: l.categoria || "", nomeLancamento,
+        tituloLista: usaDescricaoComoTitulo ? m.descricaoOrigem : nomeLancamento
+      };
+    })
+    .filter((m) => !ehMovimentacaoDeCartao(m))
+    .filter((m) => m.tipo !== "Transferencia")
+    .filter((m) => (!de || m.data >= de) && (!ate || m.data <= ate));
+}
+
+// Filtros de Tipo e Banco (dropdowns) recalculam de verdade os gráficos e
+// KPIs — Categoria (dropdown OU clique numa fatia) só filtra a LISTA de
+// transações embaixo, sem remodelar a rosca.
+function movimentacoesFiltradasDash() {
+  const base = movimentacoesNoPeriodo(STATE.filtroDashDe, STATE.filtroDashAte);
+  return base
+    .filter((m) => !STATE.filtroDashTipo || m.tipo === STATE.filtroDashTipo)
+    .filter((m) => !STATE.filtroDashBanco || (m.instituicao || "") === STATE.filtroDashBanco);
+}
+
+function transacoesListaDash(listaFiltrada) {
+  if (!STATE.filtroDashCategoria) return listaFiltrada;
+  if (STATE.filtroDashCategoria === "Outras" && STATE.filtroDashCategoriasOutras) {
+    return listaFiltrada.filter((m) => STATE.filtroDashCategoriasOutras.includes(m.categoria));
+  }
+  return listaFiltrada.filter((m) => m.categoria === STATE.filtroDashCategoria);
+}
+
+// Opções dos dropdowns vêm sempre do período inteiro (sem aplicar tipo,
+// banco ou categoria) — assim a lista de opções não encolhe conforme você
+// vai filtrando.
+function preencherFiltrosPeriodoDash(listaPeriodo) {
+  const bancos = new Set();
+  const categorias = new Set();
+  listaPeriodo.forEach((m) => {
+    if (m.instituicao) bancos.add(m.instituicao);
+    if (m.categoria) categorias.add(m.categoria);
+  });
+  const selBanco = document.getElementById("dash-filtro-banco");
+  selBanco.innerHTML = '<option value="">Todos os bancos</option>' +
+    [...bancos].sort((a, b) => a.localeCompare(b, "pt-BR")).map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join("");
+  selBanco.value = STATE.filtroDashBanco;
+
+  const selCategoria = document.getElementById("dash-filtro-categoria");
+  selCategoria.innerHTML = '<option value="">Todas as categorias</option>' +
+    [...categorias].sort((a, b) => a.localeCompare(b, "pt-BR")).map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join("");
+  // "Outras" não é uma opção real do dropdown (é um agrupado só do
+  // gráfico) — nesse caso o dropdown fica em branco, mesmo com a rosca
+  // destacando a fatia.
+  selCategoria.value = STATE.filtroDashCategoriasOutras ? "" : STATE.filtroDashCategoria;
+}
+
+function renderDashPeriodoKpis(lista) {
+  let entrada = 0, saida = 0;
+  lista.forEach((m) => {
+    if (m.pago !== true) return;
+    const valor = Number(m.valor) || 0;
+    if (m.tipo === "Entrada") entrada += valor;
+    else if (m.tipo === "Saida") saida += valor;
+  });
+  document.getElementById("dash-periodo-kpi-grid").innerHTML =
+    kpiCard("Entrada no período", moeda(entrada), true) +
+    kpiCard("Saída no período", moeda(saida), true);
+}
+
+// "tipo" é "Saida" (gastos) ou "Entrada" (entradas) — cartão e
+// transferência já saem de "lista" lá na origem (movimentacoesNoPeriodo).
+function agruparPorCategoria(lista, tipo) {
+  const mapa = {};
+  lista.forEach((m) => {
+    if (m.pago !== true || m.tipo !== tipo) return;
+    const cat = m.categoria || "Sem categoria";
+    mapa[cat] = (mapa[cat] || 0) + (Number(m.valor) || 0);
+  });
+  return Object.entries(mapa)
+    .map(([categoria, valor]) => ({ categoria, valor }))
+    .sort((a, b) => b.valor - a.valor);
+}
+
+// Tooltip único, reaproveitado pelos gráficos novos — cria a div uma vez e
+// só reposiciona/reescreve o conteúdo a cada hover.
+function mostrarTooltipViz(evt, texto) {
+  let tt = document.getElementById("viz-tooltip");
+  if (!tt) {
+    tt = document.createElement("div");
+    tt.id = "viz-tooltip";
+    tt.className = "viz-tooltip";
+    document.body.appendChild(tt);
+  }
+  tt.textContent = texto;
+  tt.style.left = evt.clientX + 14 + "px";
+  tt.style.top = evt.clientY + 14 + "px";
+  tt.classList.add("active");
+}
+function esconderTooltipViz() {
+  const tt = document.getElementById("viz-tooltip");
+  if (tt) tt.classList.remove("active");
+}
+
+function arcoDonut(cx, cy, rOuter, rInner, a1, a2) {
+  const large = (a2 - a1) > Math.PI ? 1 : 0;
+  const x1 = cx + rOuter * Math.cos(a1), y1 = cy + rOuter * Math.sin(a1);
+  const x2 = cx + rOuter * Math.cos(a2), y2 = cy + rOuter * Math.sin(a2);
+  const x3 = cx + rInner * Math.cos(a2), y3 = cy + rInner * Math.sin(a2);
+  const x4 = cx + rInner * Math.cos(a1), y4 = cy + rInner * Math.sin(a1);
+  return `M ${x1} ${y1} A ${rOuter} ${rOuter} 0 ${large} 1 ${x2} ${y2} L ${x3} ${y3} A ${rInner} ${rInner} 0 ${large} 0 ${x4} ${y4} Z`;
+}
+
+// Clicar numa fatia (ou na legenda) seleciona aquela categoria — estilo BI:
+// a fatia clicada fica em destaque total, as outras ficam opacas, e a
+// lista de transações embaixo filtra só pra ela. Clicar de novo (ou em
+// "Limpar seleção") desfaz. "Outras" é um agrupado de várias categorias
+// pequenas — clicar nela filtra a lista por todas elas juntas.
+function alternarSelecaoCategoriaDash(categoria, categoriasReais) {
+  if (STATE.filtroDashCategoria === categoria) {
+    STATE.filtroDashCategoria = "";
+    STATE.filtroDashCategoriasOutras = null;
+  } else {
+    STATE.filtroDashCategoria = categoria;
+    STATE.filtroDashCategoriasOutras = categoriasReais || null;
+  }
+  STATE.paginaDashTransacoes = 1;
+  renderPainelPeriodoDash();
+}
+
+// Rosca interativa reaproveitável (categoria "Gastos" e "Entradas" do
+// painel de período) — não confundir com svgRosca(), que é a rosca simples
+// e não-interativa do card "Gastos por categoria" já existente acima.
+function renderGraficoCategoriasPeriodo(elId, grupos, rotuloTotal, mensagemVazia) {
+  const el = document.getElementById(elId);
+  const LIMITE = 8;
+  const principais = grupos.slice(0, LIMITE);
+  const resto = grupos.slice(LIMITE);
+  const categoriasOutras = resto.map((g) => g.categoria);
+  const grupoFinal = resto.length
+    ? [...principais, { categoria: "Outras", valor: resto.reduce((s, g) => s + g.valor, 0) }]
+    : principais;
+  const total = grupoFinal.reduce((s, g) => s + g.valor, 0);
+
+  if (!grupoFinal.length || total <= 0) {
+    el.innerHTML = `<div class="empty">${esc(mensagemVazia)}</div>`;
+    return;
+  }
+
+  const selecaoAtiva = !!STATE.filtroDashCategoria;
+  const cx = 110, cy = 110, rOuter = 95, rInner = 58;
+  const gap = grupoFinal.length > 1 ? 0.02 : 0;
+  let anguloIni = -Math.PI / 2;
+  let pathsHtml = "";
+  let legendaHtml = "";
+  grupoFinal.forEach((g, i) => {
+    const fracao = g.valor / total;
+    const anguloFim = anguloIni + fracao * Math.PI * 2;
+    const cor = g.categoria === "Outras" ? COR_OUTRAS : CORES_CATEGORICAS[i % CORES_CATEGORICAS.length];
+    const a1 = anguloIni + gap / 2, a2 = anguloFim - gap / 2;
+    const selecionada = STATE.filtroDashCategoria === g.categoria;
+    const classeEstado = selecionada ? " selecionada" : (selecaoAtiva ? " dimmed" : "");
+    if (a2 > a1) {
+      pathsHtml += `<path d="${arcoDonut(cx, cy, rOuter, rInner, a1, a2)}" fill="${cor}" class="fatia-donut${classeEstado}" data-categoria="${esc(g.categoria)}" data-tip="${esc(g.categoria)}: ${esc(moeda(g.valor))} (${(fracao * 100).toFixed(1)}%)"></path>`;
+    }
+    legendaHtml += (
+      `<div class="legenda-item${classeEstado}" data-categoria="${esc(g.categoria)}">` +
+      `<span class="legenda-swatch" style="background:${cor}"></span>` +
+      `<span class="legenda-nome">${esc(g.categoria)}</span>` +
+      `<span class="legenda-valor">${moeda(g.valor)} <small>(${(fracao * 100).toFixed(1)}%)</small></span></div>`
+    );
+    anguloIni = anguloFim;
+  });
+
+  el.innerHTML =
+    `<div class="donut-wrap">` +
+    `<svg viewBox="0 0 220 220" class="donut-svg">${pathsHtml}` +
+    `<text x="110" y="103" text-anchor="middle" class="donut-total-label">${esc(rotuloTotal)}</text>` +
+    `<text x="110" y="127" text-anchor="middle" class="donut-total-valor">${esc(moeda(total))}</text>` +
+    `</svg>` +
+    `<div class="donut-legenda">${legendaHtml}</div>` +
+    `</div>`;
+
+  const aoClicar = (categoria) => alternarSelecaoCategoriaDash(categoria, categoria === "Outras" ? categoriasOutras : null);
+  el.querySelectorAll(".fatia-donut").forEach((path) => {
+    path.addEventListener("mousemove", (e) => mostrarTooltipViz(e, path.dataset.tip));
+    path.addEventListener("mouseleave", esconderTooltipViz);
+    path.addEventListener("click", () => aoClicar(path.dataset.categoria));
+  });
+  el.querySelectorAll(".legenda-item").forEach((item) => {
+    item.addEventListener("click", () => aoClicar(item.dataset.categoria));
+  });
+}
+
+const PAGINA_DASH_TAMANHO = 10;
+
+function renderTransacoesDash(lista) {
+  const totalPaginas = Math.max(1, Math.ceil(lista.length / PAGINA_DASH_TAMANHO));
+  STATE.paginaDashTransacoes = Math.min(Math.max(1, STATE.paginaDashTransacoes), totalPaginas);
+  const inicio = (STATE.paginaDashTransacoes - 1) * PAGINA_DASH_TAMANHO;
+  const pagina = lista.slice(inicio, inicio + PAGINA_DASH_TAMANHO);
+
+  const body = document.getElementById("dash-transacoes-body");
+  body.innerHTML = pagina.length
+    ? pagina.map((m) => (
+        `<tr><td>${dataBR(m.data)}</td><td>${esc(m.tituloLista)}</td>` +
+        `<td>${esc(m.instituicao || "—")}</td>` +
+        `<td><span class="badge-tipo ${m.tipo}">${rotuloTipo(m.tipo)}</span></td>` +
+        `<td>${esc(m.categoria)}</td><td class="num">${moeda(m.valor)}</td>` +
+        `<td><span class="stamp ${m.pago ? "pago" : "pendente"}">${m.pago ? "PAGO" : "PENDENTE"}</span></td></tr>`
+      )).join("")
+    : '<tr><td colspan="7" class="empty">Nenhuma transação com esse filtro.</td></tr>';
+
+  const paginacao = document.getElementById("dash-transacoes-paginacao");
+  paginacao.innerHTML = lista.length ? (
+    `<button class="btn btn-small" id="btn-dash-pag-anterior" ${STATE.paginaDashTransacoes <= 1 ? "disabled" : ""}>‹ Anterior</button>` +
+    `<span>Página ${STATE.paginaDashTransacoes} de ${totalPaginas} — ${lista.length} transação(ões)</span>` +
+    `<button class="btn btn-small" id="btn-dash-pag-proxima" ${STATE.paginaDashTransacoes >= totalPaginas ? "disabled" : ""}>Próxima ›</button>`
+  ) : "";
+  const btnAnterior = document.getElementById("btn-dash-pag-anterior");
+  if (btnAnterior) btnAnterior.addEventListener("click", () => { STATE.paginaDashTransacoes--; renderPainelPeriodoDash(); });
+  const btnProxima = document.getElementById("btn-dash-pag-proxima");
+  if (btnProxima) btnProxima.addEventListener("click", () => { STATE.paginaDashTransacoes++; renderPainelPeriodoDash(); });
+
+  document.getElementById("btn-dash-limpar-selecao").style.display = STATE.filtroDashCategoria ? "" : "none";
+}
+
+// Um ponto por dia, últimos 30 dias — só movimentação de conta "normal"
+// (sem cartão) já paga, tipo Saída, é o que conta como "compra" aqui.
+function computarComprasUltimos30Dias() {
+  const hoje = new Date();
+  const dias = [];
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(hoje);
+    d.setDate(d.getDate() - i);
+    dias.push(formatarDataISO(d));
+  }
+  const porDia = {};
+  dias.forEach((d) => (porDia[d] = { qtd: 0, valor: 0 }));
+
+  const mapaLanc = mapaLancamentos();
+  const conexoesAtivas = conexoesAtivasParaPessoal();
+  STATE.movimentacoes.forEach((m) => {
+    if (!movimentacaoVisivel(m, conexoesAtivas)) return;
+    if (m.pago !== true) return;
+    if (!porDia[m.data]) return;
+    const l = mapaLanc[m.lancamentoId] || {};
+    if (l.tipo !== "Saida") return;
+    if (ehMovimentacaoDeCartao({ ...m, categoria: l.categoria })) return;
+    porDia[m.data].qtd += 1;
+    porDia[m.data].valor += Number(m.valor) || 0;
+  });
+  return dias.map((d) => ({ data: d, ...porDia[d] }));
+}
+
+function svgGraficoLinha(pontos, campo, cor, formatador, titulo) {
+  const w = 640, h = 170, padL = 8, padR = 8, padT = 20, padB = 24;
+  const maxVal = Math.max(1, ...pontos.map((p) => p[campo]));
+  const passoX = pontos.length > 1 ? (w - padL - padR) / (pontos.length - 1) : 0;
+  const escalaY = (v) => padT + (h - padT - padB) * (1 - v / maxVal);
+  const pathD = pontos.map((p, i) => `${i === 0 ? "M" : "L"} ${(padL + i * passoX).toFixed(1)} ${escalaY(p[campo]).toFixed(1)}`).join(" ");
+  const xUltimo = padL + (pontos.length - 1) * passoX;
+  const areaD = `${pathD} L ${xUltimo.toFixed(1)} ${h - padB} L ${padL} ${h - padB} Z`;
+  const ultimo = pontos[pontos.length - 1];
+  const pontosHtml = pontos.map((p, i) => {
+    const x = padL + i * passoX, y = escalaY(p[campo]);
+    return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="11" fill="transparent" class="ponto-linha" data-tip="${dataBR(p.data)}: ${esc(formatador(p[campo]))}"></circle>`;
+  }).join("");
+  return (
+    `<div class="linha-chart-titulo">${esc(titulo)}</div>` +
+    `<svg viewBox="0 0 ${w} ${h}" class="linha-svg">` +
+    `<line x1="${padL}" y1="${h - padB}" x2="${w - padR}" y2="${h - padB}" class="linha-eixo"></line>` +
+    `<path d="${areaD}" fill="${cor}" opacity="0.1"></path>` +
+    `<path d="${pathD}" fill="none" stroke="${cor}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"></path>` +
+    `<circle cx="${xUltimo.toFixed(1)}" cy="${escalaY(ultimo[campo]).toFixed(1)}" r="4" fill="${cor}" stroke="var(--panel)" stroke-width="2"></circle>` +
+    `<text x="${xUltimo.toFixed(1)}" y="${Math.max(12, escalaY(ultimo[campo]) - 10).toFixed(1)}" text-anchor="end" class="linha-label-final">${esc(formatador(ultimo[campo]))}</text>` +
+    `<text x="${padL}" y="${h - 6}" class="linha-eixo-label">${dataBR(pontos[0].data)}</text>` +
+    `<text x="${w - padR}" y="${h - 6}" text-anchor="end" class="linha-eixo-label">${dataBR(pontos[pontos.length - 1].data)}</text>` +
+    pontosHtml +
+    `</svg>`
+  );
+}
+
+function renderGraficoCompras() {
+  const el = document.getElementById("dash-grafico-compras");
+  const pontos = computarComprasUltimos30Dias();
+  const semDados = pontos.every((p) => p.qtd === 0);
+  if (semDados) {
+    el.innerHTML = '<div class="empty">Nenhuma compra nos últimos 30 dias.</div>';
+    return;
+  }
+  el.innerHTML =
+    `<div class="linhas-grid">` +
+    `<div>${svgGraficoLinha(pontos, "qtd", CORES_CATEGORICAS[0], (v) => String(v), "Quantidade de compras por dia")}</div>` +
+    `<div>${svgGraficoLinha(pontos, "valor", CORES_CATEGORICAS[1], (v) => moeda(v), "Valor gasto por dia")}</div>` +
+    `</div>`;
+  el.querySelectorAll(".ponto-linha").forEach((ponto) => {
+    ponto.addEventListener("mousemove", (e) => mostrarTooltipViz(e, ponto.dataset.tip));
+    ponto.addEventListener("mouseleave", esconderTooltipViz);
+  });
+}
+
+document.getElementById("dash-filtro-de").addEventListener("change", (e) => {
+  STATE.filtroDashDe = e.target.value;
+  STATE.paginaDashTransacoes = 1;
+  renderPainelPeriodoDash();
+});
+document.getElementById("dash-filtro-ate").addEventListener("change", (e) => {
+  STATE.filtroDashAte = e.target.value;
+  STATE.paginaDashTransacoes = 1;
+  renderPainelPeriodoDash();
+});
+document.getElementById("dash-filtro-tipo").addEventListener("change", (e) => {
+  STATE.filtroDashTipo = e.target.value;
+  STATE.paginaDashTransacoes = 1;
+  renderPainelPeriodoDash();
+});
+document.getElementById("dash-filtro-banco").addEventListener("change", (e) => {
+  STATE.filtroDashBanco = e.target.value;
+  STATE.paginaDashTransacoes = 1;
+  renderPainelPeriodoDash();
+});
+document.getElementById("dash-filtro-categoria").addEventListener("change", (e) => {
+  STATE.filtroDashCategoria = e.target.value;
+  STATE.filtroDashCategoriasOutras = null;
+  STATE.paginaDashTransacoes = 1;
+  renderPainelPeriodoDash();
+});
+document.getElementById("btn-dash-limpar-selecao").addEventListener("click", () => {
+  STATE.filtroDashCategoria = "";
+  STATE.filtroDashCategoriasOutras = null;
+  document.getElementById("dash-filtro-categoria").value = "";
+  STATE.paginaDashTransacoes = 1;
+  renderPainelPeriodoDash();
+});
+
+// Painel de período: filtros De/Até/Tipo/Banco/Categoria + KPIs do período +
+// as duas roscas interativas + tabela de transações. Não mexe no filtro de
+// "Mês" nem nas seções que já existiam antes dele.
+function renderPainelPeriodoDash() {
+  const listaPeriodo = movimentacoesNoPeriodo(STATE.filtroDashDe, STATE.filtroDashAte);
+  preencherFiltrosPeriodoDash(listaPeriodo);
+  const listaFiltrada = movimentacoesFiltradasDash();
+  renderDashPeriodoKpis(listaFiltrada);
+  renderGraficoCategoriasPeriodo("dash-grafico-categorias", agruparPorCategoria(listaFiltrada, "Saida"), "Total gasto", "Nenhum gasto no período selecionado.");
+  renderGraficoCategoriasPeriodo("dash-grafico-entradas", agruparPorCategoria(listaFiltrada, "Entrada"), "Total recebido", "Nenhuma entrada no período selecionado.");
+  renderTransacoesDash(transacoesListaDash(listaFiltrada));
+  renderGraficoCompras();
+}
+
 function renderDashboard() {
   const mes = STATE.filtroDashMes || mesAtualISO();
   const d = calcularDashboard(mes);
+  const geral = calcularIndicadoresGeraisDash();
   document.getElementById("kpi-grid").innerHTML =
     kpiCard("Saldo atual", moeda(d.saldoAtual), d.saldoAtual >= 0) +
     kpiCard("Renda do mês", moeda(d.entradasMes), true) +
     kpiCard("Total a pagar no mês", moeda(d.saidasMes), true) +
     kpiCard("Já pago no mês", moeda(d.saidasPagasMes), true) +
-    kpiCard("Quanto posso gastar por dia", moeda(d.gastoPorDia) + ` <small>(${d.diasRestantes} dias)</small>`, d.gastoPorDia >= 0);
+    kpiCard("Quanto posso gastar por dia", moeda(d.gastoPorDia) + ` <small>(${d.diasRestantes} dias)</small>`, d.gastoPorDia >= 0) +
+    kpiCard("Saldo previsto", moeda(geral.saldoPrevisto), geral.saldoPrevisto >= 0) +
+    kpiCard("% da renda gasta no mês", geral.percentualRendaGasta.toFixed(1) + "%", geral.percentualRendaGasta <= 100) +
+    kpiCard("Gasto permitido até hoje", moeda(geral.gastoPermitidoAteHoje), true) +
+    kpiCard("Parcelas futuras no cartão", moeda(geral.parcelasCartaoFuturas), true);
   renderDashboardMovs(mes);
   renderGraficoCategorias(mes);
   renderEstimativaMeses();
+  renderPainelPeriodoDash();
 }
 
 // Só as movimentações do mês escolhido — uma parcela futura (ex: mês que
@@ -2675,17 +3195,25 @@ function renderCartoesOpenFinance() {
       const ordenados = [...STATE.cartoesOpenFinance].sort((a, b) => (a.instituicao || "").localeCompare(b.instituicao || "", "pt-BR"));
       grid.innerHTML = ordenados.map((c) => {
         const pctUtilizado = c.limiteTotal > 0 ? Math.min(100, Math.max(0, (c.limiteUtilizado / c.limiteTotal) * 100)) : 0;
+        const diaFechamento = diaFechamentoEfetivoOF(c);
+        const diaVencimento = diaVencimentoEfetivoOF(c);
+        const rotuloFechamento = diaFechamento ? `dia ${diaFechamento}${c.diaFechamentoManual ? " (configurado por você)" : ""}` : "não informado";
+        const rotuloVencimento = diaVencimento ? `dia ${diaVencimento}${c.diaVencimentoManual ? " (configurado por você)" : ""}` : "não informado";
         return (
           `<div class="conexao-card">` +
           `<div class="conexao-topo"><h3>${esc(c.instituicao)} — ${esc(c.nome)}</h3>${c.bandeira ? `<span class="badge-tipo Saida">${esc(c.bandeira)}</span>` : ""}</div>` +
           `<div class="plano-progresso-barra"><div class="plano-progresso-fill" style="width:${pctUtilizado}%"></div></div>` +
           `<div class="plano-progresso-legenda"><span class="pct">${pctUtilizado.toFixed(0)}% utilizado</span><span>${moeda(c.limiteUtilizado)} de ${moeda(c.limiteTotal)}</span></div>` +
           `<div class="conexao-info" style="margin-top:10px;">Disponível: <strong>${moeda(c.limiteDisponivel)}</strong></div>` +
-          `<div class="conexao-info">Fechamento: ${c.dataFechamento ? dataBR(c.dataFechamento) : "não informado pelo banco"} · Vencimento: ${c.dataVencimento ? dataBR(c.dataVencimento) : "não informado pelo banco"}</div>` +
+          `<div class="conexao-info">Fechamento: ${rotuloFechamento} · Vencimento: ${rotuloVencimento}</div>` +
           `<div class="conexao-info">Atualizado em: ${c.ultimaSincronizacao ? fmtDataHora(c.ultimaSincronizacao) : "—"}</div>` +
+          `<button class="btn-small" style="margin-top:8px;" data-configurar-ciclo="${c.id}">✏️ Configurar dia de fechamento/vencimento</button>` +
           `</div>`
         );
       }).join("");
+      grid.querySelectorAll("[data-configurar-ciclo]").forEach((btn) => {
+        btn.addEventListener("click", () => abrirModalConfigurarCicloOF(btn.dataset.configurarCiclo));
+      });
     }
   }
   // Também aparecem como opção no formulário "Nova compra parcelada" — sem
@@ -2802,10 +3330,15 @@ function encontrarPrevisaoParaConciliar(grupoParcelamento, parcelaAtual, pendent
 // manual de cartão, que já cria todas de uma vez). Cada previsão vira uma
 // movimentação PENDENTE normal; quando a parcela real chegar num sync
 // futuro, encontrarPrevisaoParaConciliar() casa com ela em vez de duplicar.
-function gerarPrevisoesFuturas(batch, t, meta, grupoParcelamento, lancamentoId, conexaoId, conexao, contaTipo, jaExistentesOuCriadas) {
+// "dataBaseParaProjecao" é opcional — quando o cartão tem ciclo (fechamento/
+// vencimento) configurado, as parcelas futuras somam meses a partir da data
+// de VENCIMENTO da parcela atual (não da data da compra), pra ficarem
+// consistentes com a parcela real. Sem isso (comportamento de sempre),
+// projeta a partir da data da própria compra.
+function gerarPrevisoesFuturas(batch, t, meta, grupoParcelamento, lancamentoId, conexaoId, conexao, contaTipo, jaExistentesOuCriadas, dataBaseParaProjecao) {
   const valorParcela = Math.abs(arredondar2(Number(t.amount) || 0));
   const base = baseDescricaoParcela(t.description || t.descriptionRaw);
-  const dataBaseTransacao = parseDataLocal(String(t.date || "").slice(0, 10));
+  const dataBaseTransacao = parseDataLocal(dataBaseParaProjecao || String(t.date || "").slice(0, 10));
   for (let n = meta.installmentNumber + 1; n <= meta.totalInstallments; n++) {
     const marcador = grupoParcelamento + "#" + n;
     if (jaExistentesOuCriadas.has(marcador)) continue;
@@ -2847,9 +3380,179 @@ async function sincronizarCartaoOpenFinance(conexaoId, conexao, conta) {
   const existente = STATE.cartoesOpenFinance.find((c) => c.accountId === conta.id);
   if (existente) {
     await updateDoc(doc(db, "cartoesOpenFinance", existente.id), dados);
+    return { ...existente, ...dados, id: existente.id };
   } else {
-    await addDoc(collection(db, "cartoesOpenFinance"), dados);
+    const ref = await addDoc(collection(db, "cartoesOpenFinance"), dados);
+    return { ...dados, id: ref.id, diaFechamentoManual: null, diaVencimentoManual: null };
   }
+}
+
+// Descobre o dia de fechamento/vencimento efetivo de um cartão Open
+// Finance: prioriza o que o USUÁRIO configurou manualmente (mais
+// confiável, já que o banco costuma não informar isso via Open Finance);
+// senão, tenta extrair o dia a partir da última data que o banco mandou;
+// sem nenhum dos dois, devolve null (não dá pra calcular vencimento).
+function diaFechamentoEfetivoOF(cartaoOF) {
+  if (!cartaoOF) return null;
+  if (cartaoOF.diaFechamentoManual) return Number(cartaoOF.diaFechamentoManual);
+  if (cartaoOF.dataFechamento) return parseDataLocal(cartaoOF.dataFechamento).getDate();
+  return null;
+}
+function diaVencimentoEfetivoOF(cartaoOF) {
+  if (!cartaoOF) return null;
+  if (cartaoOF.diaVencimentoManual) return Number(cartaoOF.diaVencimentoManual);
+  if (cartaoOF.dataVencimento) return parseDataLocal(cartaoOF.dataVencimento).getDate();
+  return null;
+}
+
+// A data que entra em Movimentações pra uma compra no cartão Open Finance é
+// a data de VENCIMENTO da fatura que ela cai (mesma regra do cadastro
+// manual de cartões) — não a data em que a compra aconteceu. Assim, quando
+// você paga a fatura, todas as compras daquele ciclo aparecem juntas na
+// mesma data, e "a pagar" reflete o que você realmente vai desembolsar e
+// quando. Devolve null se não der pra calcular (sem dia de vencimento
+// conhecido, nem informado pelo banco nem cadastrado manualmente) — nesse
+// caso quem chama usa a data real da transação como já fazia antes.
+function calcularVencimentoCartaoOF(cartaoOF, dataTransacaoStr) {
+  const diaVencimento = diaVencimentoEfetivoOF(cartaoOF);
+  if (!diaVencimento) return null;
+  const diaFechamento = diaFechamentoEfetivoOF(cartaoOF);
+  let ano, mes; // mes 0-indexado, já apontando pro ciclo/fatura certo
+  if (diaFechamento) {
+    const ciclo = calcularCicloInicial(dataTransacaoStr, diaFechamento);
+    ano = ciclo.ano; mes = ciclo.mes;
+  } else {
+    // Sem dia de fechamento conhecido: assume que a compra sempre cai na
+    // fatura do mês seguinte (mais seguro que supor "deste mês").
+    const d = parseDataLocal(dataTransacaoStr);
+    ano = d.getFullYear(); mes = d.getMonth() + 1;
+  }
+  return calcularProximoVencimento(diaVencimento, new Date(ano, mes, 1));
+}
+
+function abrirModalConfigurarCicloOF(id) {
+  const c = STATE.cartoesOpenFinance.find((x) => x.id === id);
+  if (!c) return mostrarToast("Cartão não encontrado.", true);
+  document.getElementById("config-ciclo-of-id").value = c.id;
+  document.getElementById("config-ciclo-of-fechamento").value = diaFechamentoEfetivoOF(c) || "";
+  document.getElementById("config-ciclo-of-vencimento").value = diaVencimentoEfetivoOF(c) || "";
+  document.getElementById("modal-configurar-ciclo-of").classList.add("active");
+}
+function fecharModalConfigurarCicloOF() {
+  document.getElementById("modal-configurar-ciclo-of").classList.remove("active");
+}
+document.getElementById("btn-cancelar-config-ciclo-of").addEventListener("click", fecharModalConfigurarCicloOF);
+document.getElementById("modal-configurar-ciclo-of").addEventListener("click", (e) => {
+  if (e.target.id === "modal-configurar-ciclo-of") fecharModalConfigurarCicloOF();
+});
+
+document.getElementById("btn-salvar-config-ciclo-of").addEventListener("click", async () => {
+  const id = document.getElementById("config-ciclo-of-id").value;
+  const diaFechamentoManual = Number(document.getElementById("config-ciclo-of-fechamento").value) || null;
+  const diaVencimentoManual = Number(document.getElementById("config-ciclo-of-vencimento").value) || null;
+  if (diaVencimentoManual && (diaVencimentoManual < 1 || diaVencimentoManual > 31)) {
+    return mostrarToast("Dia de vencimento inválido.", true);
+  }
+  if (diaFechamentoManual && (diaFechamentoManual < 1 || diaFechamentoManual > 31)) {
+    return mostrarToast("Dia de fechamento inválido.", true);
+  }
+  try {
+    await updateDoc(doc(db, "cartoesOpenFinance", id), { diaFechamentoManual, diaVencimentoManual });
+    const cartaoAtualizado = { ...STATE.cartoesOpenFinance.find((x) => x.id === id), diaFechamentoManual, diaVencimentoManual };
+    fecharModalConfigurarCicloOF();
+    const qtd = await recalcularDatasCartaoOF(cartaoAtualizado);
+    mostrarToast(qtd ? `Ciclo salvo — ${qtd} movimentação(ões) tiveram a data de vencimento recalculada.` : "Ciclo salvo.");
+  } catch (err) {
+    mostrarToast("Não foi possível salvar: " + err.message, true);
+  }
+});
+
+// Recalcula, com base no dia de fechamento/vencimento (manual ou vindo do
+// banco), a data de vencimento das movimentações de cartão JÁ importadas
+// dessa instituição — sem isso, configurar o ciclo só corrigiria as
+// próximas sincronizações, deixando o que já está lançado com a data
+// antiga (errada). Só toca em transações reais (não em previsões futuras,
+// que serão corrigidas naturalmente quando a compra real chegar).
+async function recalcularDatasCartaoOF(cartaoOF) {
+  const snap = await getDocs(query(
+    collection(db, "movimentacoes"),
+    where("contaTipo", "==", "cartao"),
+    where("origem", "==", "Open Finance"),
+    where("instituicao", "==", cartaoOF.instituicao)
+  ));
+  const batch = writeBatch(db);
+  let mudancas = 0;
+  snap.docs.forEach((d) => {
+    const m = d.data();
+    if (m.previsao === true) return;
+    const dataBase = m.dataTransacaoReal || m.data;
+    const novaData = calcularVencimentoCartaoOF(cartaoOF, dataBase);
+    if (novaData && novaData !== m.data) {
+      batch.update(doc(db, "movimentacoes", d.id), { data: novaData, dataTransacaoReal: dataBase });
+      mudancas++;
+    }
+  });
+  if (mudancas) await batch.commit();
+  return mudancas;
+}
+
+// Mantém o "pago"/"pendente" de todas as transações de cartão de uma
+// instituição em dia sozinho: percorre TODAS as transações de cartão
+// daquele banco (vindas do Open Finance) em ordem cronológica e aplica a
+// regra que qualquer cartão de crédito usa na prática — cada
+// pagamento/estorno (crédito) quita as compras mais antigas em aberto
+// primeiro (FIFO), até esgotar o valor do crédito. O que sobrar em aberto é
+// a dívida atual real. Só mexe em transações de cartão via Open Finance —
+// compras parceladas cadastradas manualmente continuam com o controle
+// manual de sempre.
+async function aplicarFifoCartao(instituicao) {
+  const [movsSnap, lancSnap] = await Promise.all([
+    getDocs(query(collection(db, "movimentacoes"), where("contaTipo", "==", "cartao"), where("origem", "==", "Open Finance"), where("instituicao", "==", instituicao))),
+    getDocs(collection(db, "lancamentos"))
+  ]);
+  const mapaLanc = {};
+  lancSnap.docs.forEach((d) => (mapaLanc[d.id] = d.data()));
+
+  const todas = movsSnap.docs
+    .map((d) => ({ id: d.id, ...d.data() }))
+    .filter((m) => m.previsao !== true)
+    .map((m) => ({ ...m, tipoReal: (mapaLanc[m.lancamentoId] || {}).tipo }))
+    // Mesma data: crédito processa antes do débito (não muda o resultado na
+    // prática, só deixa o comportamento previsível).
+    .sort((a, b) => (a.data < b.data ? -1 : a.data > b.data ? 1 : (a.tipoReal === "Entrada" ? -1 : 1)));
+
+  const filaDebitos = [];
+  const paraPago = new Set();
+  todas.forEach((m) => {
+    if (m.tipoReal === "Entrada") {
+      paraPago.add(m.id);
+      let restante = arredondar2(Number(m.valor) || 0);
+      while (restante > 0.005 && filaDebitos.length) {
+        const proximo = filaDebitos[0];
+        if (proximo.valor <= restante + 0.005) {
+          paraPago.add(proximo.id);
+          restante = arredondar2(restante - proximo.valor);
+          filaDebitos.shift();
+        } else {
+          break; // cobre só parcialmente — não dá pra "meio pagar" uma transação
+        }
+      }
+    } else {
+      filaDebitos.push({ id: m.id, valor: Number(m.valor) || 0 });
+    }
+  });
+
+  const batch = writeBatch(db);
+  let mudancas = 0;
+  todas.forEach((m) => {
+    const deveFicarPago = paraPago.has(m.id);
+    if (m.pago !== deveFicarPago) {
+      batch.update(doc(db, "movimentacoes", m.id), { pago: deveFicarPago });
+      mudancas++;
+    }
+  });
+  if (mudancas) await batch.commit();
+  return mudancas;
 }
 
 async function sincronizarConexao(conexaoId) {
@@ -2867,9 +3570,13 @@ async function sincronizarConexao(conexaoId) {
     }
 
     // Cartões de crédito da conexão: atualiza limite/fatura ANTES das
-    // transações, independente de ter transação nova ou não.
+    // transações, independente de ter transação nova ou não. Guarda o
+    // cartão mesclado (dados do banco + config manual de ciclo) por
+    // accountId, pra calcular a data de vencimento de cada transação logo
+    // abaixo.
+    const mapaCartaoOFPorConta = {};
     for (const conta of contas) {
-      if (conta.type === "CREDIT") await sincronizarCartaoOpenFinance(conexaoId, conexao, conta);
+      if (conta.type === "CREDIT") mapaCartaoOFPorConta[conta.id] = await sincronizarCartaoOpenFinance(conexaoId, conexao, conta);
     }
 
     const hoje = new Date();
@@ -2895,6 +3602,10 @@ async function sincronizarConexao(conexaoId) {
 
     if (!novas.length) {
       await updateDoc(doc(db, "conexoesBancarias", conexaoId), { ultimaSincronizacao: serverTimestamp(), status: "conectado" });
+      // Reaplica o FIFO mesmo sem transação nova — mantém a situação de
+      // pagamento do cartão corrigida sozinha se algo tiver mudado (ex:
+      // edição manual) desde a última sincronização.
+      if (contas.some((c) => c.type === "CREDIT")) await aplicarFifoCartao(conexao.instituicao);
       mostrarToast("Tudo em dia — nenhuma transação nova.");
       return;
     }
@@ -2948,6 +3659,17 @@ async function sincronizarConexao(conexaoId) {
       } : { parcelaAtual: null, parcelaTotal: null, valorTotalCompra: null };
 
       const dataTransacao = String(t.date || dataAte).slice(0, 10);
+      // Pra cartão, o que entra em Movimentações é a data de VENCIMENTO da
+      // fatura (mesma regra do cadastro manual de cartões) — não a data em
+      // que a compra aconteceu. Assim, pagar a fatura = tudo daquele ciclo
+      // aparece junto na mesma data. Guarda a data real da transação à
+      // parte (dataTransacaoReal), só pra referência (mostrada como
+      // sublabel). Sem dia de vencimento conhecido (cartão sem ciclo
+      // configurado nem informado pelo banco), continua igual a sempre foi:
+      // usa a data real da transação.
+      const cartaoOF = t._contaTipo === "cartao" ? mapaCartaoOFPorConta[t.accountId] : null;
+      const vencimentoCalculado = cartaoOF ? calcularVencimentoCartaoOF(cartaoOF, dataTransacao) : null;
+      const dataParaMovimentacao = vencimentoCalculado || dataTransacao;
 
       // Conciliação tem duas formas, da mais precisa pra mais genérica:
       // 1) Essa parcela já tinha sido PREVISTA numa sincronização anterior
@@ -2992,14 +3714,14 @@ async function sincronizarConexao(conexaoId) {
       const dadosOpenFinance = {
         origem: "Open Finance", pluggyTransactionId: t.id, conexaoId: conexaoId, instituicao: conexao.instituicao || "Banco",
         contaTipo: t._contaTipo || "banco", revisado: jaCategorizadaComConfianca, previsao: false, descricaoOrigem: t.description || t.descriptionRaw || "",
-        chaveCategorizador: chave, grupoParcelamento, ...dadosParcela
+        dataTransacaoReal: dataTransacao, chaveCategorizador: chave, grupoParcelamento, ...dadosParcela
       };
 
       if (pendente) {
         pendentesConsumidos.add(pendente.id);
         qtdConciliadas++;
         batch.update(doc(db, "movimentacoes", pendente.id), {
-          lancamentoId, pago: jaPago, data: dataTransacao, valor: Math.abs(arredondar2(valor)), ...dadosOpenFinance
+          lancamentoId, pago: jaPago, data: dataParaMovimentacao, valor: Math.abs(arredondar2(valor)), ...dadosOpenFinance
         });
       } else {
         // ID determinístico (baseado no ID da transação na Pluggy) em vez de
@@ -3010,25 +3732,36 @@ async function sincronizarConexao(conexaoId) {
         // pegava quando as sincronizações eram simultâneas.
         const movRef = doc(db, "movimentacoes", "of_" + t.id);
         batch.set(movRef, {
-          lancamentoId, data: dataTransacao, valor: Math.abs(arredondar2(valor)), pago: jaPago,
+          lancamentoId, data: dataParaMovimentacao, valor: Math.abs(arredondar2(valor)), pago: jaPago,
           responsavel: "", cartaoId: null, compraParceladaId: null, ...dadosOpenFinance, createdAt: serverTimestamp()
         });
       }
 
       // Compra parcelada com parcelas ainda por vir: gera as previstas que
-      // ainda não existem, pra aparecerem como PENDENTE em Movimentações
-      // já agora, em vez de só quando cada uma acontecer de verdade.
+      // ainda não existem, pra aparecerem como PENDENTE em Movimentações já
+      // agora, em vez de só quando cada uma acontecer de verdade. Usa a
+      // data de vencimento (não a da compra) como base pra somar os meses,
+      // senão as parcelas futuras cairiam no dia da compra, não no dia
+      // certo da fatura.
       if (ehParcelaDeCartao && meta.totalInstallments > meta.installmentNumber) {
         qtdPrevisoesGeradas += meta.totalInstallments - meta.installmentNumber;
-        gerarPrevisoesFuturas(batch, t, meta, grupoParcelamento, lancamentoId, conexaoId, conexao, t._contaTipo || "cartao", marcadoresParcelaExistentes);
+        gerarPrevisoesFuturas(batch, t, meta, grupoParcelamento, lancamentoId, conexaoId, conexao, t._contaTipo || "cartao", marcadoresParcelaExistentes, dataParaMovimentacao);
       }
     });
     batch.update(doc(db, "conexoesBancarias", conexaoId), { ultimaSincronizacao: serverTimestamp(), status: "conectado" });
     await batch.commit();
+
+    // Reaplica o FIFO do cartão depois de gravar tudo — cobre tanto
+    // pagamentos novos quitando compras antigas quanto ajustes que a
+    // sincronização acabou de fazer.
+    const temCartao = contas.some((c) => c.type === "CREDIT");
+    const qtdFifoAjustadas = temCartao ? await aplicarFifoCartao(conexao.instituicao) : 0;
+
     const partesResumo = [];
     if (qtdConciliadas) partesResumo.push(`${qtdConciliadas} conciliada(s) com lançamento(s) pendente(s)`);
     if (qtdAutoCategorizadas - qtdConciliadas > 0) partesResumo.push(`${qtdAutoCategorizadas - qtdConciliadas} categorizada(s) automaticamente por regra`);
     if (qtdPrevisoesGeradas) partesResumo.push(`${qtdPrevisoesGeradas} parcela(s) futura(s) prevista(s)`);
+    if (qtdFifoAjustadas) partesResumo.push(`${qtdFifoAjustadas} situação(ões) de pagamento do cartão ajustada(s) automaticamente`);
     const sufixo = partesResumo.length ? ` (${partesResumo.join(", ")})` : "";
     mostrarToast(`${novas.length} transação(ões) importada(s) de ${conexao.instituicao || "banco"}${sufixo}. Recategorize em Movimentações se quiser.`);
   } catch (err) {

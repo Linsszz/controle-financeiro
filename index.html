@@ -100,6 +100,66 @@
       </table>
       <div class="paginacao" id="dash-paginacao"></div>
     </div>
+
+    <div class="card">
+      <h2>Período de análise</h2>
+      <p class="hint" style="margin-top:0;">Escolha um intervalo de datas e filtros — os indicadores, gráficos e a lista de transações abaixo são recalculados juntos. Não conta movimentação de cartão (isso fica só na aba Cartão de Crédito) nem transferência entre contas.</p>
+      <div class="row">
+        <div class="field" style="max-width:200px;">
+          <label>De</label>
+          <input type="date" id="dash-filtro-de">
+        </div>
+        <div class="field" style="max-width:200px;">
+          <label>Até</label>
+          <input type="date" id="dash-filtro-ate">
+        </div>
+        <div class="field" style="max-width:170px;">
+          <label>Tipo</label>
+          <select id="dash-filtro-tipo">
+            <option value="">Entrada e Saída</option>
+            <option value="Entrada">Só Entrada</option>
+            <option value="Saida">Só Saída</option>
+          </select>
+        </div>
+        <div class="field" style="max-width:190px;">
+          <label>Banco</label>
+          <select id="dash-filtro-banco"><option value="">Todos os bancos</option></select>
+        </div>
+        <div class="field" style="max-width:200px;">
+          <label>Categoria</label>
+          <select id="dash-filtro-categoria"><option value="">Todas as categorias</option></select>
+        </div>
+      </div>
+      <div class="kpi-grid" id="dash-periodo-kpi-grid" style="margin-top:16px;"></div>
+    </div>
+
+    <div class="card">
+      <h2>Gastos por categoria no período</h2>
+      <p class="hint" style="margin-top:0;">Clique numa fatia (ou na legenda) pra ver só as transações dela na lista abaixo. Clique de novo pra limpar.</p>
+      <div id="dash-grafico-categorias"></div>
+    </div>
+
+    <div class="card">
+      <h2>Entradas por categoria no período</h2>
+      <div id="dash-grafico-entradas"></div>
+    </div>
+
+    <div class="card">
+      <h2 style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+        <span>Transações do período</span>
+        <button class="btn-small" id="btn-dash-limpar-selecao" style="display:none;">✕ Limpar seleção</button>
+      </h2>
+      <table>
+        <thead><tr><th>Data</th><th>Lançamento</th><th>Banco</th><th>Tipo</th><th>Categoria</th><th>Valor</th><th>Situação</th></tr></thead>
+        <tbody id="dash-transacoes-body"><tr><td colspan="7" class="empty">Carregando…</td></tr></tbody>
+      </table>
+      <div class="paginacao" id="dash-transacoes-paginacao"></div>
+    </div>
+
+    <div class="card">
+      <h2>Compras nos últimos 30 dias</h2>
+      <div id="dash-grafico-compras"></div>
+    </div>
   </section>
 
   <!-- MOVIMENTAÇÕES -->
@@ -148,6 +208,10 @@
 
     <div class="card">
       <h2>Movimentações cadastradas</h2>
+      <div class="field" style="margin-bottom:14px;">
+        <label>Buscar em qualquer campo</label>
+        <input type="text" id="mov-busca-livre" placeholder="Digite qualquer coisa: nome, banco, categoria, valor, &quot;entrada&quot;, &quot;pendente&quot;...">
+      </div>
       <div class="row">
         <div class="field" style="max-width:180px;">
           <label>De</label>
@@ -156,6 +220,15 @@
         <div class="field" style="max-width:180px;">
           <label>Até</label>
           <input type="month" id="mov-filtro-mes-ate">
+        </div>
+        <div class="field" style="max-width:160px;">
+          <label>Tipo</label>
+          <select id="mov-filtro-tipo">
+            <option value="">Entrada e Saída</option>
+            <option value="Entrada">Só Entrada</option>
+            <option value="Saida">Só Saída</option>
+            <option value="Transferencia">Só Transferência</option>
+          </select>
         </div>
         <div class="field" style="max-width:200px;">
           <label>Pessoa</label>
@@ -187,6 +260,7 @@
         <thead><tr><th>Data</th><th>Lançamento</th><th>Banco</th><th>Tipo</th><th>Categoria</th><th>Quem comprou</th><th>Valor</th><th>Situação</th></tr></thead>
         <tbody id="movs-body"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
       </table>
+      <div class="paginacao" id="mov-paginacao"></div>
     </div>
   </section>
 
@@ -240,6 +314,7 @@
           <select id="lanc-tipo">
             <option value="Entrada">Entrada</option>
             <option value="Saida">Saída</option>
+            <option value="Transferencia">Transferência</option>
           </select>
         </div>
         <div class="field">
@@ -620,6 +695,7 @@
       <select id="edit-lanc-tipo">
         <option value="Entrada">Entrada</option>
         <option value="Saida">Saída</option>
+        <option value="Transferencia">Transferência</option>
       </select>
     </div>
     <div class="field" style="margin-top:10px;">
@@ -693,6 +769,7 @@
       <select id="novo-lanc-tipo">
         <option value="Entrada">Entrada</option>
         <option value="Saida">Saída</option>
+        <option value="Transferencia">Transferência</option>
       </select>
     </div>
     <div class="field" style="margin-top:10px;">
@@ -740,6 +817,27 @@
         <button class="btn" id="btn-cancelar-edicao-cartao">Cancelar</button>
         <button class="btn btn-primary" id="btn-salvar-edicao-cartao">Salvar alterações</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: configurar dia de fechamento/vencimento de cartão Open Finance -->
+<div class="modal-overlay" id="modal-configurar-ciclo-of">
+  <div class="modal-box">
+    <h2>Configurar ciclo da fatura</h2>
+    <input type="hidden" id="config-ciclo-of-id">
+    <p class="hint" style="margin-top:6px;">Use isso quando o banco não informa automaticamente o dia de fechamento e/ou vencimento deste cartão. Com esses dias configurados, o sistema calcula corretamente em qual fatura cada compra cai.</p>
+    <div class="field" style="margin-top:14px;">
+      <label>Dia de fechamento</label>
+      <input type="number" min="1" max="31" id="config-ciclo-of-fechamento">
+    </div>
+    <div class="field" style="margin-top:10px;">
+      <label>Dia de vencimento</label>
+      <input type="number" min="1" max="31" id="config-ciclo-of-vencimento">
+    </div>
+    <div class="row" style="justify-content:flex-end; margin-top:18px;">
+      <button class="btn" id="btn-cancelar-config-ciclo-of">Cancelar</button>
+      <button class="btn btn-primary" id="btn-salvar-config-ciclo-of">Salvar</button>
     </div>
   </div>
 </div>
