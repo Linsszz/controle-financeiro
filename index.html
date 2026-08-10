@@ -71,6 +71,26 @@
     <div class="kpi-grid" id="kpi-grid">
       <div class="empty">Carregando indicadores…</div>
     </div>
+
+    <div class="card">
+      <h2>Gastos por categoria</h2>
+      <p class="view-desc" id="dash-cat-mes-label" style="margin-bottom:16px;">Categorias com mais gasto no mês selecionado acima.</p>
+      <div class="grafico-categorias-wrap">
+        <div id="dash-rosca-categorias"></div>
+        <div id="dash-legenda-categorias"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Estimativa geral por mês</h2>
+      <p class="view-desc" style="margin-bottom:16px;">Total de saídas em cada mês com movimentação registrada, pra você ter uma visão geral e uma média pra se basear.</p>
+      <div class="kpi-grid" id="dash-estimativa-kpis" style="margin-bottom:18px;"></div>
+      <table>
+        <thead><tr><th>Mês</th><th>Total de saídas</th><th>Categoria que mais pesou</th></tr></thead>
+        <tbody id="dash-estimativa-body"><tr><td colspan="3" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+
     <div class="card">
       <h2>Movimentações do mês</h2>
       <p class="view-desc" style="margin-bottom:14px;">Só as movimentações do mês escolhido acima. Pra ver outros meses, mude o filtro "Mês" — pra navegar por tudo de uma vez, use a aba Movimentações.</p>

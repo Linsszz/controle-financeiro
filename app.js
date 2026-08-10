@@ -118,6 +118,14 @@ function diasNoMes(mesStr) {
   return new Date(ano, mes, 0).getDate();
 }
 
+// "yyyy-MM" -> "Agosto/2026", pra exibição amigável nos cards e tabelas.
+const NOMES_MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+function rotuloMes(mesStr) {
+  const [ano, mes] = String(mesStr).split("-").map(Number);
+  const nome = NOMES_MESES[mes - 1] || mesStr;
+  return `${nome.charAt(0).toUpperCase()}${nome.slice(1)}/${ano}`;
+}
+
 function tsParaMillis(ts) {
   if (!ts) return Date.now();
   if (ts.toMillis) return ts.toMillis();
@@ -316,6 +324,135 @@ function calcularDashboard(mes) {
   const gastoPorDia = diasRestantes > 0 ? saldoAtual / diasRestantes : 0;
 
   return { saldoAtual, entradasMes, saidasMes, entradasPagasMes, saidasPagasMes, diasRestantes, gastoPorDia };
+}
+
+/* ══════════════ GRÁFICO "GASTOS POR CATEGORIA" + ESTIMATIVA MENSAL ══════════════
+ *
+ * Usa a MESMA definição de "saída do mês" que já aparece no card "Total a
+ * pagar no mês" do Dashboard (todas as saídas com data naquele mês, pagas
+ * ou não) — assim a soma das fatias da rosca sempre bate com aquele KPI.
+ * Se o mês escolhido for o mês corrente (ainda em andamento), os valores
+ * vêm do onSnapshot em tempo real, então atualizam sozinhos a cada nova
+ * movimentação lançada — sem precisar recarregar a página.
+ */
+
+const CORES_CATEGORIAS = ["#7C3AED", "#F59E0B", "#16A34A", "#3B82F6", "#EC4899", "#DC2626", "#0EA5E9", "#A855F7", "#84CC16", "#D97706", "#14B8A6", "#F43F5E"];
+
+// [{ categoria, valor }], só saídas do mês, ordenado do maior pro menor gasto.
+function calcularGastosPorCategoria(mes) {
+  const mapaLanc = mapaLancamentos();
+  const porCategoria = {};
+  STATE.movimentacoes.forEach((m) => {
+    if (String(m.data || "").slice(0, 7) !== mes) return;
+    const l = mapaLanc[m.lancamentoId] || {};
+    if (l.tipo !== "Saida") return;
+    const categoria = l.categoria || "Sem categoria";
+    porCategoria[categoria] = (porCategoria[categoria] || 0) + (Number(m.valor) || 0);
+  });
+  return Object.entries(porCategoria)
+    .map(([categoria, valor]) => ({ categoria, valor }))
+    .sort((a, b) => b.valor - a.valor);
+}
+
+// { "2026-08": { total, porCategoria: { categoria: valor } } } — todos os
+// meses que têm ao menos uma saída lançada, sem limite de quantos meses.
+function calcularResumoMensal() {
+  const mapaLanc = mapaLancamentos();
+  const porMes = {};
+  STATE.movimentacoes.forEach((m) => {
+    const mes = String(m.data || "").slice(0, 7);
+    if (mes.length !== 7) return;
+    const l = mapaLanc[m.lancamentoId] || {};
+    if (l.tipo !== "Saida") return;
+    const valor = Number(m.valor) || 0;
+    if (!porMes[mes]) porMes[mes] = { total: 0, porCategoria: {} };
+    porMes[mes].total += valor;
+    const categoria = l.categoria || "Sem categoria";
+    porMes[mes].porCategoria[categoria] = (porMes[mes].porCategoria[categoria] || 0) + valor;
+  });
+  return porMes;
+}
+
+// Desenha a rosca em SVG puro (sem lib externa) — cada fatia é um arco de
+// círculo feito com stroke-dasharray, técnica clássica pra gráfico de rosca
+// só com CSS/SVG.
+function svgRosca(dados) {
+  const total = dados.reduce((s, d) => s + d.valor, 0);
+  if (!total) return '<div class="empty" style="padding:30px 0;">Nenhuma saída registrada neste mês ainda.</div>';
+  const tamanho = 180, espessura = 26;
+  const r = (tamanho - espessura) / 2;
+  const circunferencia = 2 * Math.PI * r;
+  const cx = tamanho / 2, cy = tamanho / 2;
+  let acumulado = 0;
+  const arcos = dados.map((d, i) => {
+    const comprimento = (d.valor / total) * circunferencia;
+    const cor = CORES_CATEGORIAS[i % CORES_CATEGORIAS.length];
+    const arco = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${cor}" stroke-width="${espessura}" stroke-dasharray="${comprimento} ${circunferencia - comprimento}" stroke-dashoffset="${-acumulado}" transform="rotate(-90 ${cx} ${cy})"></circle>`;
+    acumulado += comprimento;
+    return arco;
+  }).join("");
+  return (
+    `<svg viewBox="0 0 ${tamanho} ${tamanho}" width="${tamanho}" height="${tamanho}">` +
+    arcos +
+    `<text x="${cx}" y="${cy - 5}" text-anchor="middle" class="rosca-total-label">Total</text>` +
+    `<text x="${cx}" y="${cy + 15}" text-anchor="middle" class="rosca-total-valor">${moeda(total)}</text>` +
+    `</svg>`
+  );
+}
+
+function legendaCategorias(dados) {
+  const total = dados.reduce((s, d) => s + d.valor, 0);
+  if (!total) return "";
+  return '<ul class="legenda-categorias">' + dados.map((d, i) => {
+    const pct = (d.valor / total) * 100;
+    const cor = CORES_CATEGORIAS[i % CORES_CATEGORIAS.length];
+    return (
+      `<li><span class="legenda-dot" style="background:${cor}"></span>` +
+      `<span class="legenda-nome">${esc(d.categoria)}</span>` +
+      `<span class="legenda-valor num">${moeda(d.valor)}</span>` +
+      `<span class="legenda-pct num">${pct.toFixed(1)}%</span></li>`
+    );
+  }).join("") + "</ul>";
+}
+
+function renderGraficoCategorias(mes) {
+  const dados = calcularGastosPorCategoria(mes);
+  const emAndamento = mes === mesAtualISO();
+  document.getElementById("dash-cat-mes-label").textContent =
+    `Categorias com mais gasto em ${rotuloMes(mes)}` + (emAndamento ? " — mês em andamento, atualiza conforme você lança novas saídas." : ".");
+  document.getElementById("dash-rosca-categorias").innerHTML = svgRosca(dados);
+  document.getElementById("dash-legenda-categorias").innerHTML = legendaCategorias(dados);
+}
+
+function renderEstimativaMeses() {
+  const porMes = calcularResumoMensal();
+  const meses = Object.keys(porMes).sort().reverse(); // mais recente primeiro
+  const kpisEl = document.getElementById("dash-estimativa-kpis");
+  const bodyEl = document.getElementById("dash-estimativa-body");
+  if (!meses.length) {
+    kpisEl.innerHTML = "";
+    bodyEl.innerHTML = '<tr><td colspan="3" class="empty">Nenhuma saída registrada ainda.</td></tr>';
+    return;
+  }
+  const totalGeral = meses.reduce((s, m) => s + porMes[m].total, 0);
+  const mediaMensal = totalGeral / meses.length;
+  const mesMaior = meses.reduce((a, b) => (porMes[a].total > porMes[b].total ? a : b));
+
+  kpisEl.innerHTML =
+    kpiCard("Média mensal de gastos", moeda(mediaMensal), true) +
+    kpiCard("Meses com registro", String(meses.length), true) +
+    kpiCard("Mês com mais gasto", `${rotuloMes(mesMaior)} <small>(${moeda(porMes[mesMaior].total)})</small>`, true);
+
+  bodyEl.innerHTML = meses.map((mes) => {
+    const info = porMes[mes];
+    const topCategoria = Object.entries(info.porCategoria).sort((a, b) => b[1] - a[1])[0];
+    const tagAndamento = mes === mesAtualISO() ? ' <span class="stamp andamento">EM ANDAMENTO</span>' : "";
+    return (
+      `<tr><td>${rotuloMes(mes)}${tagAndamento}</td>` +
+      `<td class="num">${moeda(info.total)}</td>` +
+      `<td>${topCategoria ? `${esc(topCategoria[0])} <span class="sublabel">${moeda(topCategoria[1])}</span>` : "—"}</td></tr>`
+    );
+  }).join("");
 }
 
 /* ══════════════ NAVEGAÇÃO ══════════════ */
@@ -1394,6 +1531,8 @@ function renderDashboard() {
     kpiCard("Já pago no mês", moeda(d.saidasPagasMes), true) +
     kpiCard("Quanto posso gastar por dia", moeda(d.gastoPorDia) + ` <small>(${d.diasRestantes} dias)</small>`, d.gastoPorDia >= 0);
   renderDashboardMovs(mes);
+  renderGraficoCategorias(mes);
+  renderEstimativaMeses();
 }
 
 // Só as movimentações do mês escolhido — uma parcela futura (ex: mês que
@@ -2312,6 +2451,7 @@ document.getElementById("edit-lc-frequencia").addEventListener("change", () => a
 alternarCamposRecorrencia("lc"); // estado inicial do form (tipo padrão = Pontual, então já começa escondido)
 
 document.getElementById("btn-add-item-compra").addEventListener("click", async () => {
+  const btn = document.getElementById("btn-add-item-compra");
   const nome = document.getElementById("lc-nome").value.trim();
   const categoria = document.getElementById("lc-categoria").value.trim();
   const valorEstimado = Number(document.getElementById("lc-valor").value) || 0;
@@ -2322,6 +2462,17 @@ document.getElementById("btn-add-item-compra").addEventListener("click", async (
   if (!nome) return mostrarToast("Dê um nome pro item.", true);
   if (tipoCompra === "Recorrente" && frequencia === "personalizada" && intervaloDias <= 0) {
     return mostrarToast("Informe a cada quantos dias esse item se repete.", true);
+  }
+  // Evita duplo clique enviar o item duas vezes, e dá retorno visual
+  // imediato — antes o botão continuava clicável durante o "await
+  // addDoc", então um segundo clique (ou uma conexão lenta/instável)
+  // podia dar a falsa impressão de que nada tinha acontecido.
+  if (btn.disabled) return;
+  btn.disabled = true;
+  const textoOriginal = btn.textContent;
+  btn.textContent = "Salvando...";
+  if (navigator.onLine === false) {
+    mostrarToast("Sem conexão com a internet agora — o item só entra na lista quando a conexão voltar.", true);
   }
   try {
     const dados = { nome, descricao, valorEstimado, categoria, tipoCompra, status: "Pendente", ultimaCompra: null, proximaCompra: null, createdAt: serverTimestamp() };
@@ -2341,7 +2492,14 @@ document.getElementById("btn-add-item-compra").addEventListener("click", async (
     alternarCamposRecorrencia("lc");
     alternarCampoIntervalo("lc");
   } catch (err) {
+    // Loga o erro completo no console (F12 > Console) — se o problema
+    // continuar, o texto exato ali (ex: "Missing or insufficient
+    // permissions") ajuda a achar a causa real bem mais rápido.
+    console.error("Falha ao adicionar item na lista de compras:", err);
     mostrarToast("Não foi possível salvar: " + err.message, true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = textoOriginal;
   }
 });
 
