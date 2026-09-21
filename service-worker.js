@@ -1,4 +1,4 @@
-const CACHE_NAME = "finleo-v1";
+const CACHE_NAME = "finleo-v2";
 const CORE_ASSETS = [
   "./",
   "./index.html",

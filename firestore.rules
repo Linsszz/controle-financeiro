@@ -142,6 +142,27 @@ service cloud.firestore {
       allow delete: if true;
     }
 
+    // ══════════════ ARQUIVO DO "ZERAR CONTROLE FINANCEIRO" ══════════════
+    // Cópia só-leitura do que foi apagado numa limpeza. Create livre (é o
+    // próprio app arquivando antes de apagar); update bloqueado, pra que o
+    // arquivo não possa ser reescrito depois. Delete continua permitido só
+    // pra quem quiser limpar o arquivo pela planilha administrativa.
+    match /arquivo/{id} {
+      allow read: if true;
+      allow create: if request.resource.data.resetId is string
+                    && request.resource.data.colecaoOrigem is string;
+      allow update: if false;
+      allow delete: if true;
+    }
+
+    // Ficha de cada limpeza (quando, quanto, o que foi apagado).
+    match /resets/{id} {
+      allow read: if true;
+      allow create: if request.resource.data.quando is string;
+      allow update: if false;
+      allow delete: if true;
+    }
+
     match /regrasCategorizacaoOF/{id} {
       allow read: if true;
       allow create, update: if request.resource.data.chave is string

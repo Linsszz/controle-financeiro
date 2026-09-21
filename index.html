@@ -9,7 +9,7 @@
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
-<meta name="theme-color" content="#7C3AED">
+<meta name="theme-color" content="#050706">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -251,14 +251,43 @@
           <select id="mov-filtro-revisado">
             <option value="">Todas</option>
             <option value="nao">Só a revisar</option>
+            <option value="sim">Só já revisadas</option>
+          </select>
+        </div>
+        <div class="field" style="max-width:150px;">
+          <label>Itens por página</label>
+          <select id="mov-por-pagina">
+            <option value="30">30</option>
+            <option value="60">60</option>
+            <option value="100">100</option>
+            <option value="250">250</option>
+            <option value="todas">Todas</option>
           </select>
         </div>
         <button class="btn" id="btn-mov-todos-meses">Ver todos os meses</button>
+        <button class="btn btn-primary" id="btn-abrir-revisao">🔍 Modo revisão</button>
       </div>
+
+      <div class="aviso-revisao hidden" id="mov-aviso-revisao"></div>
+
       <div class="kpi-grid" id="mov-kpi-grid" style="margin-top:16px;"></div>
+
+      <!-- Ações em lote: só aparece quando há linhas marcadas -->
+      <div class="barra-lote hidden" id="mov-barra-lote">
+        <span class="lote-contador" id="lote-contador"></span>
+        <select id="lote-lancamento"><option value="">Aplicar lançamento…</option></select>
+        <select id="lote-pessoa"><option value="">— Não informado —</option></select>
+        <button class="btn btn-small" id="btn-lote-revisadas">Marcar revisadas</button>
+        <button class="btn btn-small" id="btn-lote-pagas">Marcar pagas</button>
+        <button class="btn btn-small" id="btn-lote-pendentes">Marcar pendentes</button>
+        <button class="btn btn-small" id="btn-lote-selecionar-filtro">Selecionar tudo do filtro</button>
+        <button class="btn btn-small" id="btn-lote-limpar">Limpar seleção</button>
+        <button class="btn btn-danger btn-small" id="btn-lote-excluir">Excluir</button>
+      </div>
+
       <table>
-        <thead><tr><th>Data</th><th>Lançamento</th><th>Banco</th><th>Tipo</th><th>Categoria</th><th>Quem comprou</th><th>Valor</th><th>Situação</th></tr></thead>
-        <tbody id="movs-body"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
+        <thead><tr><th class="col-check"><input type="checkbox" id="mov-check-todos" title="Selecionar/desmarcar a página"></th><th>Data</th><th>Lançamento</th><th>Banco</th><th>Tipo</th><th>Categoria</th><th>Quem comprou</th><th>Valor</th><th>Situação</th></tr></thead>
+        <tbody id="movs-body"><tr><td colspan="9" class="empty">Carregando…</td></tr></tbody>
       </table>
       <div class="paginacao" id="mov-paginacao"></div>
     </div>
@@ -677,6 +706,45 @@
       </div>
       <p class="hint">O saldo inicial é o valor que você tem em caixa/conta hoje, antes das movimentações já pagas registradas no sistema. A renda mensal é usada para calcular o percentual de renda gasta e o gasto permitido até hoje.</p>
     </div>
+
+    <!-- ZERAR CONTROLE FINANCEIRO -->
+    <div class="card card-perigo">
+      <h2>⚠️ Zerar controle financeiro</h2>
+      <p class="view-desc" style="margin-bottom:6px;">Limpa o sistema para você recomeçar do zero a partir de uma data. <strong>Nada é perdido:</strong> tudo que for apagado é copiado antes para um arquivo, que você pode consultar quando quiser no botão abaixo.</p>
+
+      <div class="reset-opcoes">
+        <label><input type="checkbox" id="reset-movimentacoes" checked> Movimentações</label>
+        <label><input type="checkbox" id="reset-compras" checked> Compras parceladas</label>
+        <label><input type="checkbox" id="reset-recorrentes"> Custos recorrentes</label>
+        <label><input type="checkbox" id="reset-listaCompras"> Lista de compras</label>
+        <label><input type="checkbox" id="reset-planos"> Planos / metas</label>
+        <label><input type="checkbox" id="reset-cartoes"> Cartões de crédito</label>
+        <label><input type="checkbox" id="reset-lancamentos"> Lançamentos (categorias)</label>
+        <label><input type="checkbox" id="reset-config"> Renda mensal e saldo inicial</label>
+      </div>
+
+      <div class="row">
+        <div class="field" style="max-width:230px;">
+          <label>Apagar só até a data (opcional)</label>
+          <input type="date" id="reset-ate-data">
+        </div>
+        <div class="field" style="max-width:260px;">
+          <label>Digite ZERAR para confirmar</label>
+          <input type="text" id="reset-confirmacao" class="reset-confirma" placeholder="ZERAR" autocomplete="off">
+        </div>
+        <button class="btn btn-danger" id="btn-zerar-sistema">Zerar agora</button>
+      </div>
+      <p class="hint" id="reset-status" style="margin-top:10px;"></p>
+
+      <div class="arquivo-aviso">
+        Se preencher a data, só são apagadas as movimentações <strong>até aquele dia</strong> (inclusive) — útil para fechar o passado e continuar dali pra frente. Deixando em branco, apaga tudo do que estiver marcado acima. O <strong>Histórico de Alterações</strong> nunca é apagado.
+      </div>
+
+      <div class="row" style="margin-top:16px;">
+        <button class="btn" id="btn-ver-arquivo">📦 Ver dados arquivados</button>
+        <button class="btn btn-small" id="btn-baixar-arquivo">Baixar arquivo em CSV</button>
+      </div>
+    </div>
   </section>
 
 </main>
@@ -753,6 +821,98 @@
         <button class="btn btn-primary" id="btn-salvar-edicao-mov">Salvar alterações</button>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- MODAL: dados arquivados (o que foi apagado nos "zerar sistema") -->
+<div class="modal-overlay" id="modal-arquivo">
+  <div class="modal-box" style="max-width:860px;">
+    <div class="rev-topo">
+      <h2>Dados arquivados</h2>
+      <span class="rev-progresso" id="arquivo-contador"></span>
+    </div>
+    <p class="hint" style="margin-top:4px;">Tudo que foi apagado nas limpezas fica guardado aqui — só leitura, não entra em nenhum cálculo do sistema.</p>
+
+    <div class="field" style="margin-top:12px;max-width:340px;">
+      <label>Limpeza</label>
+      <select id="arquivo-filtro-reset"><option value="">Todas as limpezas</option></select>
+    </div>
+
+    <div style="max-height:52vh;overflow:auto;margin-top:12px;">
+      <table>
+        <thead><tr><th>Arquivado em</th><th>Tipo</th><th>Data</th><th>Descrição</th><th>Valor</th><th>Situação</th></tr></thead>
+        <tbody id="arquivo-body"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+
+    <div style="text-align:right;margin-top:16px;">
+      <button class="btn" id="btn-fechar-arquivo">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: modo revisão — uma movimentação por vez, pra classificar rápido -->
+<div class="modal-overlay" id="modal-revisao">
+  <div class="modal-box modal-revisao-box">
+    <div class="rev-topo">
+      <h2>Modo revisão</h2>
+      <span class="rev-progresso" id="rev-progresso"></span>
+    </div>
+    <div class="rev-barra"><div class="rev-barra-fill" id="rev-progresso-fill"></div></div>
+
+    <div class="rev-cartao">
+      <div class="rev-valor" id="rev-valor">—</div>
+      <div class="rev-descricao" id="rev-descricao"></div>
+      <div class="rev-data" id="rev-data"></div>
+      <div class="rev-detalhes" id="rev-detalhes"></div>
+    </div>
+
+    <div class="field" style="margin-top:14px;">
+      <label>É o quê? (lançamento)</label>
+      <div class="select-add">
+        <input type="text" id="rev-lancamento-busca" list="dl-rev-lancamento" autocomplete="off" placeholder="Digite para buscar...">
+        <datalist id="dl-rev-lancamento"></datalist>
+        <input type="hidden" id="rev-lancamento">
+        <button type="button" class="btn-add-inline" data-abrir-novo-lancamento="rev-lancamento" title="Cadastrar novo lançamento">+</button>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:10px;">
+      <div class="field">
+        <label>Quem comprou</label>
+        <div class="select-add">
+          <select id="rev-responsavel"><option value="">— Não informado —</option></select>
+          <button type="button" class="btn-add-inline" data-abrir-nova-pessoa="rev-responsavel" title="Cadastrar nova pessoa">+</button>
+        </div>
+      </div>
+      <div class="field" style="max-width:150px;">
+        <label>Situação</label>
+        <select id="rev-pago">
+          <option value="false">Não pago</option>
+          <option value="true">Pago</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:10px;">
+      <div class="field">
+        <label>Data</label>
+        <input type="date" id="rev-data-edit">
+      </div>
+      <div class="field">
+        <label>Valor (R$)</label>
+        <input type="number" step="0.01" id="rev-valor-edit">
+      </div>
+    </div>
+
+    <div class="rev-acoes">
+      <button class="btn btn-small" id="btn-rev-voltar">‹ Voltar</button>
+      <button class="btn btn-small" id="btn-rev-pular">Pular ›</button>
+      <button class="btn btn-danger btn-small" id="btn-rev-excluir">Excluir</button>
+      <button class="btn btn-primary" id="btn-rev-confirmar">Confirmar e próxima ⏎</button>
+    </div>
+    <p class="hint" style="margin-top:12px;">Atalhos: <strong>Enter</strong> confirma e avança · <strong>→</strong> pula · <strong>Esc</strong> fecha. Ao confirmar uma transação importada do banco, o sistema aprende a regra e já categoriza sozinho as próximas parecidas.</p>
+    <div style="text-align:right;margin-top:10px;"><button class="btn btn-small" id="btn-rev-fechar">Fechar revisão</button></div>
   </div>
 </div>
 

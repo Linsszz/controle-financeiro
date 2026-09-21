@@ -40,6 +40,7 @@ const STATE = {
   filtroMovTipo: "",
   buscaLivreMov: "",
   paginaMov: 1,
+  movPorPagina: 30,
   filtroLCTipo: "",
   filtroLCCategoria: "",
   filtroLCStatus: "",
@@ -491,7 +492,18 @@ document.getElementById("sidebar-backdrop").addEventListener("click", fecharMenu
 
 /* ══════════════ RENDERIZAÇÃO ══════════════ */
 
+// Select simples (sem busca) usado só na barra de ações em lote.
+function preencherSelectLoteLancamento() {
+  const sel = document.getElementById("lote-lancamento");
+  if (!sel) return;
+  sel.innerHTML = '<option value="">Aplicar lançamento…</option>' +
+    [...STATE.lancamentos]
+      .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"))
+      .map((l) => `<option value="${esc(l.id)}">${esc(rotuloLancamento(l))}</option>`).join("");
+}
+
 function renderAll() {
+  preencherSelectLoteLancamento();
   renderLancamentos();
   renderMovimentacoes();
   renderCartoes();
@@ -538,7 +550,8 @@ function preencherCategorias() {
 
 const CAMPOS_BUSCA_LANCAMENTO = [
   "mov-lancamento", "rec-lancamento", "compra-lancamento", "edit-mov-lancamento", "edit-rec-lancamento", "edit-compra-lancamento",
-  "qa-mov-lancamento", "qa-compra-lancamento", "qa-rec-lancamento"
+  "qa-mov-lancamento", "qa-compra-lancamento", "qa-rec-lancamento",
+  "rev-lancamento"
 ];
 
 function rotuloLancamento(l) {
@@ -644,7 +657,7 @@ document.getElementById("btn-salvar-novo-lancamento").addEventListener("click", 
 function preencherSelectsPessoa() {
   const opcoes = '<option value="">— Não informado —</option>' +
     STATE.pessoas.map((p) => `<option value="${esc(p.nome)}">${esc(p.nome)}</option>`).join("");
-  ["mov-responsavel", "compra-responsavel", "edit-mov-responsavel", "edit-compra-responsavel", "qa-mov-responsavel", "qa-compra-responsavel"].forEach((id) => {
+  ["mov-responsavel", "compra-responsavel", "edit-mov-responsavel", "edit-compra-responsavel", "qa-mov-responsavel", "qa-compra-responsavel", "rev-responsavel", "lote-pessoa"].forEach((id) => {
     const sel = document.getElementById(id);
     const valorAtual = sel.value;
     sel.innerHTML = opcoes;
@@ -727,9 +740,19 @@ function filtrarPorTipoConta(lista) {
   return lista.filter((m) => (m.contaTipo || "") === STATE.filtroMovTipoConta);
 }
 
-function filtrarNaoRevisadas(lista) {
-  if (STATE.filtroMovRevisado !== "nao") return lista;
-  return lista.filter((m) => m.origem === "Open Finance" && m.revisado !== true);
+// "A revisar" vale pra QUALQUER movimentação ainda não conferida — não só
+// as do Open Finance. Antes esta função exigia origem === "Open Finance",
+// então quem lança à mão (ou migrou da planilha antiga) nunca via nada no
+// filtro "Só a revisar", mesmo com tudo por conferir. Previsões de parcela
+// futura ficam de fora: elas se resolvem sozinhas quando a parcela cai.
+function precisaRevisao(m) {
+  return m.previsao !== true && m.revisado !== true;
+}
+
+function filtrarPorRevisao(lista) {
+  if (STATE.filtroMovRevisado === "nao") return lista.filter(precisaRevisao);
+  if (STATE.filtroMovRevisado === "sim") return lista.filter((m) => !precisaRevisao(m));
+  return lista;
 }
 
 function filtrarPorTipo(lista) {
@@ -787,20 +810,27 @@ function preencherFiltroBanco(enriquecidas) {
   if (valorAtual) sel.value = valorAtual;
 }
 
+// Todo filtro volta pra página 1. Sem isso, quem estava na página 3 e mudava
+// o mês (ou clicava em "Ver todos os meses") continuava na página 3 de uma
+// lista totalmente diferente — parecia que a paginação tinha travado.
 document.getElementById("mov-filtro-pessoa").addEventListener("change", (e) => {
   STATE.filtroMovPessoa = e.target.value;
+  STATE.paginaMov = 1;
   renderMovimentacoes();
 });
 document.getElementById("mov-filtro-banco").addEventListener("change", (e) => {
   STATE.filtroMovBanco = e.target.value;
+  STATE.paginaMov = 1;
   renderMovimentacoes();
 });
 document.getElementById("mov-filtro-tipo-conta").addEventListener("change", (e) => {
   STATE.filtroMovTipoConta = e.target.value;
+  STATE.paginaMov = 1;
   renderMovimentacoes();
 });
 document.getElementById("mov-filtro-revisado").addEventListener("change", (e) => {
   STATE.filtroMovRevisado = e.target.value;
+  STATE.paginaMov = 1;
   renderMovimentacoes();
 });
 
@@ -850,6 +880,12 @@ function renderMovKpis(filtradas, totalCartaoAberto) {
 
 const PAGINA_MOV_TAMANHO = 30;
 
+// IDs das movimentações marcadas com o checkbox, pra ações em lote.
+const selecionadasMov = new Set();
+// Última lista filtrada renderizada — usada pelo "selecionar tudo do filtro"
+// e pelo modo de revisão rápida.
+let ultimaListaFiltradaMov = [];
+
 function renderMovimentacoes() {
   const mapaLanc = mapaLancamentos();
   const mapaCompra = {};
@@ -872,22 +908,29 @@ function renderMovimentacoes() {
 
   preencherFiltroPessoa(enriquecidas);
   preencherFiltroBanco(enriquecidas);
-  const filtradas = filtrarPorBuscaLivre(filtrarPorTipo(filtrarNaoRevisadas(filtrarPorTipoConta(filtrarPorBanco(filtrarPorPessoa(filtrarPorMes(enriquecidas)))))));
+  const filtradas = filtrarPorBuscaLivre(filtrarPorTipo(filtrarPorRevisao(filtrarPorTipoConta(filtrarPorBanco(filtrarPorPessoa(filtrarPorMes(enriquecidas)))))));
 
-  const totalPaginasMov = Math.max(1, Math.ceil(filtradas.length / PAGINA_MOV_TAMANHO));
+  ultimaListaFiltradaMov = filtradas;
+  // Limpa da seleção tudo que saiu do filtro atual, pra não agir em lote
+  // sobre linhas que a pessoa não está vendo.
+  const idsFiltrados = new Set(filtradas.map((m) => m.id));
+  [...selecionadasMov].forEach((id) => { if (!idsFiltrados.has(id)) selecionadasMov.delete(id); });
+
+  const tamanhoPagina = STATE.movPorPagina === Infinity ? Math.max(filtradas.length, 1) : (STATE.movPorPagina || PAGINA_MOV_TAMANHO);
+  const totalPaginasMov = Math.max(1, Math.ceil(filtradas.length / tamanhoPagina));
   STATE.paginaMov = Math.min(Math.max(1, STATE.paginaMov), totalPaginasMov);
-  const inicioPaginaMov = (STATE.paginaMov - 1) * PAGINA_MOV_TAMANHO;
-  const paginadas = filtradas.slice(inicioPaginaMov, inicioPaginaMov + PAGINA_MOV_TAMANHO);
+  const inicioPaginaMov = (STATE.paginaMov - 1) * tamanhoPagina;
+  const paginadas = filtradas.slice(inicioPaginaMov, inicioPaginaMov + tamanhoPagina);
 
   const body = document.getElementById("movs-body");
   if (!filtradas.length) {
     const temFiltro = STATE.filtroMovMesDe || STATE.filtroMovMesAte || STATE.filtroMovPessoa
       || STATE.filtroMovBanco || STATE.filtroMovTipoConta || STATE.filtroMovRevisado
       || STATE.filtroMovTipo || STATE.buscaLivreMov;
-    body.innerHTML = `<tr><td colspan="8" class="empty">${temFiltro ? "Nenhuma movimentação com esse filtro." : "Nenhuma movimentação registrada ainda."}</td></tr>`;
+    body.innerHTML = `<tr><td colspan="9" class="empty">${temFiltro ? "Nenhuma movimentação com esse filtro." : "Nenhuma movimentação registrada ainda."}</td></tr>`;
   } else {
     body.innerHTML = paginadas.map((m) => {
-      const aRevisar = m.origem === "Open Finance" && m.revisado !== true;
+      const aRevisar = precisaRevisao(m);
       const ehPrevisao = m.previsao === true;
       // Mostra o banco tanto pra transação já confirmada (origem "Open
       // Finance") quanto pra compra parcelada lançada à mão num cartão
@@ -913,7 +956,8 @@ function renderMovimentacoes() {
         rotuloDataReal
       ].filter(Boolean).map((s) => `<span class="sublabel">${esc(s)}</span>`).join("");
       return (
-        `<tr class="linha-clicavel" data-abrir-mov="${m.id}">` +
+        `<tr class="linha-clicavel${aRevisar ? " linha-a-revisar" : ""}" data-abrir-mov="${m.id}">` +
+        `<td class="col-check"><input type="checkbox" class="check-mov" data-selecionar-mov="${m.id}"${selecionadasMov.has(m.id) ? " checked" : ""}></td>` +
         `<td>${dataBR(m.data)}</td><td>${esc(m.nomeLancamento)}${aRevisar ? ' <span class="stamp revisar">A REVISAR</span>' : ""}${ehPrevisao ? ' <span class="stamp reconexao">PREVISÃO</span>' : ""}${sublabels}</td>` +
         `<td>${colunaBanco}</td>` +
         `<td><span class="badge-tipo ${m.tipo}">${rotuloTipo(m.tipo)}</span></td>` +
@@ -921,39 +965,318 @@ function renderMovimentacoes() {
         `<td><span class="stamp ${m.pago ? "pago" : "pendente"}" data-alternar-pagamento="${m.id}" data-novo-pago="${!m.pago}">${m.pago ? "PAGO" : "PENDENTE"}</span></td></tr>`
       );
     }).join("");
-    document.querySelectorAll("[data-abrir-mov]").forEach((tr) => {
-      tr.addEventListener("click", () => abrirModalMovimentacao(tr.dataset.abrirMov));
+    // Escopado no corpo desta tabela (era "document.querySelectorAll"): como
+    // as tabelas de Contas a Pagar e Cartão usam os mesmos atributos
+    // data-abrir-mov/data-alternar-pagamento, o seletor global reanexava um
+    // listener nelas a cada render — clicar lá disparava a ação várias vezes
+    // (o pagamento alternava e voltava sozinho).
+    body.querySelectorAll("[data-abrir-mov]").forEach((tr) => {
+      tr.addEventListener("click", (e) => {
+        if (e.target.closest("[data-alternar-pagamento]") || e.target.closest("[data-selecionar-mov]")) return;
+        abrirModalMovimentacao(tr.dataset.abrirMov);
+      });
     });
-    document.querySelectorAll("[data-alternar-pagamento]").forEach((stamp) => {
+    body.querySelectorAll("[data-alternar-pagamento]").forEach((stamp) => {
       stamp.addEventListener("click", (e) => {
         e.stopPropagation();
         alternarPagamento(stamp.dataset.alternarPagamento, stamp.dataset.novoPago === "true");
       });
     });
+    body.querySelectorAll("[data-selecionar-mov]").forEach((cb) => {
+      cb.addEventListener("click", (e) => e.stopPropagation());
+      cb.addEventListener("change", () => {
+        if (cb.checked) selecionadasMov.add(cb.dataset.selecionarMov);
+        else selecionadasMov.delete(cb.dataset.selecionarMov);
+        renderBarraLoteMov();
+      });
+    });
   }
+  renderBarraLoteMov();
 
+  const primeiroItem = filtradas.length ? inicioPaginaMov + 1 : 0;
+  const ultimoItem = Math.min(inicioPaginaMov + tamanhoPagina, filtradas.length);
   const paginacaoMov = document.getElementById("mov-paginacao");
   paginacaoMov.innerHTML = filtradas.length ? (
+    `<button class="btn btn-small" id="btn-mov-pag-primeira" ${STATE.paginaMov <= 1 ? "disabled" : ""}>« Primeira</button>` +
     `<button class="btn btn-small" id="btn-mov-pag-anterior" ${STATE.paginaMov <= 1 ? "disabled" : ""}>‹ Anterior</button>` +
-    `<span>Página ${STATE.paginaMov} de ${totalPaginasMov} — ${filtradas.length} movimentação(ões)</span>` +
-    `<button class="btn btn-small" id="btn-mov-pag-proxima" ${STATE.paginaMov >= totalPaginasMov ? "disabled" : ""}>Próxima ›</button>`
+    `<span class="pg-info">Página ${STATE.paginaMov} de ${totalPaginasMov} — mostrando ${primeiroItem}–${ultimoItem} de ${filtradas.length}</span>` +
+    `<button class="btn btn-small" id="btn-mov-pag-proxima" ${STATE.paginaMov >= totalPaginasMov ? "disabled" : ""}>Próxima ›</button>` +
+    `<button class="btn btn-small" id="btn-mov-pag-ultima" ${STATE.paginaMov >= totalPaginasMov ? "disabled" : ""}>Última »</button>`
   ) : "";
+  const irParaPagina = (n) => { STATE.paginaMov = n; renderMovimentacoes(); window.scrollTo({ top: document.getElementById("movs-body").closest(".card").offsetTop - 20, behavior: "smooth" }); };
+  const btnMovPrimeira = document.getElementById("btn-mov-pag-primeira");
+  if (btnMovPrimeira) btnMovPrimeira.addEventListener("click", () => irParaPagina(1));
   const btnMovAnterior = document.getElementById("btn-mov-pag-anterior");
-  if (btnMovAnterior) btnMovAnterior.addEventListener("click", () => { STATE.paginaMov--; renderMovimentacoes(); });
+  if (btnMovAnterior) btnMovAnterior.addEventListener("click", () => irParaPagina(STATE.paginaMov - 1));
   const btnMovProxima = document.getElementById("btn-mov-pag-proxima");
-  if (btnMovProxima) btnMovProxima.addEventListener("click", () => { STATE.paginaMov++; renderMovimentacoes(); });
+  if (btnMovProxima) btnMovProxima.addEventListener("click", () => irParaPagina(STATE.paginaMov + 1));
+  const btnMovUltima = document.getElementById("btn-mov-pag-ultima");
+  if (btnMovUltima) btnMovUltima.addEventListener("click", () => irParaPagina(totalPaginasMov));
+
+  // Contador de pendências de revisão — respeita todos os filtros menos o
+  // próprio filtro de revisão, pra sempre mostrar quanto falta conferir.
+  const semFiltroRevisao = filtrarPorBuscaLivre(filtrarPorTipo(filtrarPorTipoConta(filtrarPorBanco(filtrarPorPessoa(filtrarPorMes(enriquecidas))))));
+  const qtdARevisar = semFiltroRevisao.filter(precisaRevisao).length;
+  const avisoEl = document.getElementById("mov-aviso-revisao");
+  if (qtdARevisar) {
+    avisoEl.innerHTML = `<strong>${qtdARevisar}</strong> movimentação(ões) ainda por revisar neste filtro.` +
+      ` <button class="btn-link" id="btn-revisar-agora">Revisar uma por uma →</button>`;
+    avisoEl.classList.remove("hidden");
+    document.getElementById("btn-revisar-agora").addEventListener("click", () => abrirModoRevisao());
+  } else {
+    avisoEl.classList.add("hidden");
+    avisoEl.innerHTML = "";
+  }
 
   renderMovKpis(filtradas, totalCartaoAberto);
 }
+
+/* ══════════════ REVISÃO: SELEÇÃO EM LOTE ══════════════ */
+
+// Barra que aparece quando há linhas marcadas — permite classificar várias
+// movimentações de uma vez, em vez de abrir uma por uma.
+function renderBarraLoteMov() {
+  const barra = document.getElementById("mov-barra-lote");
+  const qtd = selecionadasMov.size;
+  if (!qtd) {
+    barra.classList.add("hidden");
+    const todos = document.getElementById("mov-check-todos");
+    if (todos) { todos.checked = false; todos.indeterminate = false; }
+    return;
+  }
+  barra.classList.remove("hidden");
+  document.getElementById("lote-contador").textContent =
+    `${qtd} selecionada(s)` + (qtd < ultimaListaFiltradaMov.length ? ` de ${ultimaListaFiltradaMov.length} no filtro` : "");
+}
+
+document.getElementById("mov-check-todos").addEventListener("change", (e) => {
+  const paginaIds = [...document.querySelectorAll("#movs-body [data-selecionar-mov]")].map((cb) => cb.dataset.selecionarMov);
+  if (e.target.checked) paginaIds.forEach((id) => selecionadasMov.add(id));
+  else paginaIds.forEach((id) => selecionadasMov.delete(id));
+  renderMovimentacoes();
+});
+
+document.getElementById("btn-lote-selecionar-filtro").addEventListener("click", () => {
+  ultimaListaFiltradaMov.forEach((m) => selecionadasMov.add(m.id));
+  renderMovimentacoes();
+});
+
+document.getElementById("btn-lote-limpar").addEventListener("click", () => {
+  selecionadasMov.clear();
+  renderMovimentacoes();
+});
+
+// Aplica a mesma alteração em todas as selecionadas, em lotes de 400
+// operações (o writeBatch do Firestore aceita no máximo 500).
+async function aplicarEmLote(dados, descricao) {
+  const ids = [...selecionadasMov];
+  if (!ids.length) return;
+  try {
+    for (let i = 0; i < ids.length; i += 400) {
+      const batch = writeBatch(db);
+      ids.slice(i, i + 400).forEach((id) => batch.update(doc(db, "movimentacoes", id), dados));
+      await batch.commit();
+    }
+    await addDoc(collection(db, "historico"), {
+      nomeLancamento: `${ids.length} movimentação(ões)`, campo: "Edição em lote",
+      valorAnterior: "—", valorNovo: descricao,
+      tipoAlteracao: "Edição em lote", dataHora: serverTimestamp()
+    });
+    selecionadasMov.clear();
+    mostrarToast(`${ids.length} movimentação(ões): ${descricao}.`);
+    renderMovimentacoes();
+  } catch (err) {
+    mostrarToast("Não foi possível aplicar em lote: " + err.message, true);
+  }
+}
+
+document.getElementById("btn-lote-revisadas").addEventListener("click", () => {
+  aplicarEmLote({ revisado: true }, "marcadas como revisadas");
+});
+document.getElementById("btn-lote-pagas").addEventListener("click", () => {
+  aplicarEmLote({ pago: true, revisado: true }, "marcadas como pagas e revisadas");
+});
+document.getElementById("btn-lote-pendentes").addEventListener("click", () => {
+  aplicarEmLote({ pago: false }, "marcadas como pendentes");
+});
+document.getElementById("lote-lancamento").addEventListener("change", (e) => {
+  const lancamentoId = e.target.value;
+  if (!lancamentoId) return;
+  const nome = (mapaLancamentos()[lancamentoId] || {}).nome || "lançamento";
+  e.target.value = "";
+  if (!confirm(`Aplicar o lançamento "${nome}" a ${selecionadasMov.size} movimentação(ões)?`)) return;
+  aplicarEmLote({ lancamentoId, revisado: true }, `classificadas como "${nome}"`);
+});
+document.getElementById("lote-pessoa").addEventListener("change", (e) => {
+  const responsavel = e.target.value;
+  if (!responsavel) return;
+  e.target.value = "";
+  if (!confirm(`Definir "${responsavel}" como quem comprou em ${selecionadasMov.size} movimentação(ões)?`)) return;
+  aplicarEmLote({ responsavel }, `quem comprou: ${responsavel}`);
+});
+
+document.getElementById("btn-lote-excluir").addEventListener("click", async () => {
+  const ids = [...selecionadasMov];
+  if (!ids.length) return;
+  if (!confirm(`Excluir ${ids.length} movimentação(ões)? Isso não pode ser desfeito (fica registrado no Histórico).`)) return;
+  try {
+    await addDoc(collection(db, "historico"), {
+      nomeLancamento: `${ids.length} movimentação(ões)`, campo: "Movimentação",
+      valorAnterior: `${ids.length} registro(s)`, valorNovo: "(excluídas em lote)",
+      tipoAlteracao: "Exclusão em lote", dataHora: serverTimestamp()
+    });
+    for (let i = 0; i < ids.length; i += 400) {
+      const batch = writeBatch(db);
+      ids.slice(i, i + 400).forEach((id) => batch.delete(doc(db, "movimentacoes", id)));
+      await batch.commit();
+    }
+    selecionadasMov.clear();
+    mostrarToast(`${ids.length} movimentação(ões) excluída(s).`);
+    renderMovimentacoes();
+  } catch (err) {
+    mostrarToast("Não foi possível excluir: " + err.message, true);
+  }
+});
+
+/* ══════════════ REVISÃO: MODO UMA POR UMA ══════════════ */
+
+// Fila de revisão da sessão atual. Guarda só os IDs: o conteúdo é sempre
+// relido do STATE, que está em tempo real com o Firestore.
+let filaRevisao = [];
+let posicaoRevisao = 0;
+
+function abrirModoRevisao() {
+  filaRevisao = ultimaListaFiltradaMov.filter(precisaRevisao).map((m) => m.id);
+  if (!filaRevisao.length) {
+    // Se o filtro atual já está só com revisadas, revisa tudo que falta.
+    filaRevisao = STATE.movimentacoes.filter(precisaRevisao).map((m) => m.id);
+  }
+  if (!filaRevisao.length) return mostrarToast("Nada a revisar — está tudo conferido!");
+  posicaoRevisao = 0;
+  preencherSelectsLancamento();
+  preencherSelectsPessoa();
+  document.getElementById("modal-revisao").classList.add("active");
+  mostrarItemRevisao();
+}
+
+function fecharModoRevisao() {
+  document.getElementById("modal-revisao").classList.remove("active");
+}
+
+function mostrarItemRevisao() {
+  // Pula itens que já saíram da fila (revisados ou excluídos noutra aba).
+  while (posicaoRevisao < filaRevisao.length) {
+    const m = STATE.movimentacoes.find((x) => x.id === filaRevisao[posicaoRevisao]);
+    if (m && precisaRevisao(m)) break;
+    posicaoRevisao++;
+  }
+  if (posicaoRevisao >= filaRevisao.length) {
+    fecharModoRevisao();
+    mostrarToast("Revisão concluída! 🎉");
+    return;
+  }
+
+  const m = STATE.movimentacoes.find((x) => x.id === filaRevisao[posicaoRevisao]);
+  const l = mapaLancamentos()[m.lancamentoId] || {};
+  document.getElementById("rev-progresso").textContent = `${posicaoRevisao + 1} de ${filaRevisao.length}`;
+  document.getElementById("rev-progresso-fill").style.width = `${((posicaoRevisao) / filaRevisao.length) * 100}%`;
+  document.getElementById("rev-valor").textContent = moeda(m.valor);
+  document.getElementById("rev-valor").className = "rev-valor " + (l.tipo === "Entrada" ? "entrada" : "saida");
+  document.getElementById("rev-data").textContent = dataBR(m.data);
+  document.getElementById("rev-descricao").textContent =
+    m.descricaoOrigem || m.descricaoCompra || l.nome || "(sem descrição)";
+  const detalhes = [
+    l.nome ? `Lançamento atual: ${l.nome}` : "Sem lançamento definido",
+    l.categoria ? `Categoria: ${l.categoria}` : "",
+    m.instituicao ? `Banco: ${m.instituicao}` : "",
+    m.responsavel ? `Quem comprou: ${m.responsavel}` : "",
+    m.parcelaAtual ? `Parcela ${m.parcelaAtual}${m.parcelaTotal ? "/" + m.parcelaTotal : ""}` : ""
+  ].filter(Boolean);
+  document.getElementById("rev-detalhes").innerHTML = detalhes.map((d) => `<span>${esc(d)}</span>`).join("");
+
+  definirComboLancamento("rev-lancamento", m.lancamentoId);
+  garantirOpcaoPessoa("rev-responsavel", m.responsavel || "");
+  document.getElementById("rev-pago").value = m.pago ? "true" : "false";
+  document.getElementById("rev-data-edit").value = m.data || "";
+  document.getElementById("rev-valor-edit").value = m.valor;
+}
+
+// Confirma o item atual: grava o que estiver nos campos, marca como revisado
+// e já pula pro próximo — é o gesto que torna a revisão rápida.
+async function confirmarItemRevisao() {
+  const m = STATE.movimentacoes.find((x) => x.id === filaRevisao[posicaoRevisao]);
+  if (!m) { posicaoRevisao++; return mostrarItemRevisao(); }
+
+  const lancamentoId = document.getElementById("rev-lancamento").value || m.lancamentoId;
+  const responsavel = document.getElementById("rev-responsavel").value.trim();
+  const pago = document.getElementById("rev-pago").value === "true";
+  const data = document.getElementById("rev-data-edit").value || m.data;
+  const valor = Number(document.getElementById("rev-valor-edit").value) || Number(m.valor);
+
+  if (!lancamentoId) return mostrarToast("Escolha um lançamento pra esta movimentação.", true);
+  if (!valor || valor <= 0) return mostrarToast("Valor inválido.", true);
+
+  try {
+    await updateDoc(doc(db, "movimentacoes", m.id), { lancamentoId, responsavel, pago, data, valor, revisado: true });
+    // Mesma aprendizagem do modal de edição: se veio do banco e o lançamento
+    // mudou, a próxima transação parecida já entra categorizada sozinha.
+    if (m.origem === "Open Finance" && m.chaveCategorizador && m.lancamentoId !== lancamentoId) {
+      await garantirRegraCategorizacao(m.chaveCategorizador, lancamentoId, m.descricaoOrigem);
+    }
+    posicaoRevisao++;
+    mostrarItemRevisao();
+  } catch (err) {
+    mostrarToast("Não foi possível salvar: " + err.message, true);
+  }
+}
+
+document.getElementById("btn-rev-confirmar").addEventListener("click", confirmarItemRevisao);
+document.getElementById("btn-rev-pular").addEventListener("click", () => { posicaoRevisao++; mostrarItemRevisao(); });
+document.getElementById("btn-rev-voltar").addEventListener("click", () => {
+  posicaoRevisao = Math.max(0, posicaoRevisao - 1);
+  mostrarItemRevisao();
+});
+document.getElementById("btn-rev-fechar").addEventListener("click", fecharModoRevisao);
+document.getElementById("btn-rev-excluir").addEventListener("click", async () => {
+  const m = STATE.movimentacoes.find((x) => x.id === filaRevisao[posicaoRevisao]);
+  if (!m) return;
+  if (!confirm(`Excluir esta movimentação (${dataBR(m.data)} — ${moeda(m.valor)})?`)) return;
+  try {
+    await addDoc(collection(db, "historico"), {
+      lancamentoId: m.lancamentoId || "", nomeLancamento: (mapaLancamentos()[m.lancamentoId] || {}).nome || "(excluído)",
+      campo: "Movimentação", valorAnterior: `${dataBR(m.data)} — ${moeda(m.valor)}`, valorNovo: "(excluída na revisão)",
+      tipoAlteracao: "Exclusão", dataHora: serverTimestamp()
+    });
+    await deleteDoc(doc(db, "movimentacoes", m.id));
+    posicaoRevisao++;
+    mostrarItemRevisao();
+  } catch (err) {
+    mostrarToast("Não foi possível excluir: " + err.message, true);
+  }
+});
+document.getElementById("modal-revisao").addEventListener("click", (e) => {
+  if (e.target.id === "modal-revisao") fecharModoRevisao();
+});
+// Atalhos de teclado: Enter confirma, seta pra direita pula, Esc fecha.
+document.addEventListener("keydown", (e) => {
+  if (!document.getElementById("modal-revisao").classList.contains("active")) return;
+  if (e.key === "Escape") return fecharModoRevisao();
+  if (e.key === "Enter" && e.target.tagName !== "BUTTON") { e.preventDefault(); confirmarItemRevisao(); }
+  if (e.key === "ArrowRight" && !["INPUT", "SELECT"].includes(e.target.tagName)) { posicaoRevisao++; mostrarItemRevisao(); }
+});
+
+document.getElementById("btn-abrir-revisao").addEventListener("click", () => abrirModoRevisao());
 
 const DASH_PAGE_SIZE = 20;
 
 document.getElementById("mov-filtro-mes-de").addEventListener("change", (e) => {
   STATE.filtroMovMesDe = e.target.value;
+  STATE.paginaMov = 1;
   renderMovimentacoes();
 });
 document.getElementById("mov-filtro-mes-ate").addEventListener("change", (e) => {
   STATE.filtroMovMesAte = e.target.value;
+  STATE.paginaMov = 1;
   renderMovimentacoes();
 });
 document.getElementById("btn-mov-todos-meses").addEventListener("click", () => {
@@ -961,6 +1284,13 @@ document.getElementById("btn-mov-todos-meses").addEventListener("click", () => {
   STATE.filtroMovMesAte = "";
   document.getElementById("mov-filtro-mes-de").value = "";
   document.getElementById("mov-filtro-mes-ate").value = "";
+  STATE.paginaMov = 1;
+  renderMovimentacoes();
+});
+
+document.getElementById("mov-por-pagina").addEventListener("change", (e) => {
+  STATE.movPorPagina = e.target.value === "todas" ? Infinity : Number(e.target.value);
+  STATE.paginaMov = 1;
   renderMovimentacoes();
 });
 
@@ -1445,7 +1775,7 @@ async function salvarEdicaoCompra(forcarRecalculo) {
         const movRef = doc(collection(db, "movimentacoes"));
         batch.set(movRef, {
           lancamentoId, data: vencimento, valor: valorDaParcela, pago: false, responsavel,
-          origem: `Cartao ${i + 1}/${numParcelas}`, cartaoId, compraParceladaId: id, createdAt: serverTimestamp()
+          origem: `Cartao ${i + 1}/${numParcelas}`, cartaoId, compraParceladaId: id, revisado: true, createdAt: serverTimestamp()
         });
       }
       // Parcelas já pagas continuam com data/valor intactos (viraram
@@ -2168,7 +2498,7 @@ async function criarMovimentacao({ lancamentoId, data, valor, pago, responsavel 
   if (!data || !valor) { mostrarToast("Preencha data e valor.", true); return false; }
   try {
     await addDoc(collection(db, "movimentacoes"), {
-      lancamentoId, data, valor, pago, responsavel, origem: "Manual", cartaoId: null, compraParceladaId: null, createdAt: serverTimestamp()
+      lancamentoId, data, valor, pago, responsavel, origem: "Manual", revisado: true, cartaoId: null, compraParceladaId: null, createdAt: serverTimestamp()
     });
     mostrarToast("Movimentação adicionada!");
     return true;
@@ -2383,7 +2713,7 @@ async function criarCompraParcelada({ cartaoId, lancamentoId, descricao, respons
       const movRef = doc(collection(db, "movimentacoes"));
       batch.set(movRef, {
         lancamentoId, data: vencimento, valor: valorDaParcela, pago: false, responsavel,
-        origem: `Cartao ${i + 1}/${numParcelas}`, cartaoId, compraParceladaId: compraRef.id, createdAt: serverTimestamp()
+        origem: `Cartao ${i + 1}/${numParcelas}`, cartaoId, compraParceladaId: compraRef.id, revisado: true, createdAt: serverTimestamp()
       });
     }
 
@@ -2468,7 +2798,7 @@ async function lancarRecorrentesPendentes(silencioso) {
       const vencimento = calcularProximoVencimento(r.diaVencimento, hoje);
       await addDoc(collection(db, "movimentacoes"), {
         lancamentoId: r.lancamentoId, data: vencimento, valor: Number(r.valor),
-        pago: false, origem: "Recorrente", cartaoId: null, compraParceladaId: null, createdAt: serverTimestamp()
+        pago: false, origem: "Recorrente", revisado: true, cartaoId: null, compraParceladaId: null, createdAt: serverTimestamp()
       });
       await updateDoc(doc(db, "recorrentes", r.id), { ultimoMesLancado: mesAtual });
       lancados++;
@@ -3819,6 +4149,233 @@ document.getElementById("btn-salvar-config").addEventListener("click", async () 
   } catch (err) {
     mostrarToast("Não foi possível salvar: " + err.message, true);
   }
+});
+
+/* ══════════════ ZERAR / ARQUIVAR CONTROLE FINANCEIRO ══════════════ */
+
+// Zerar aqui NUNCA é "sumir com o dado": cada registro apagado é copiado
+// antes pra coleção "arquivo", com o id da limpeza (resetId) que o gerou.
+// Assim dá pra recomeçar do zero e ainda consultar o passado no botão
+// "Ver dados arquivados". O "historico" continua intocado — as regras do
+// Firestore nem deixam apagar de lá.
+const COLECOES_RESET = [
+  { checkbox: "reset-movimentacoes", colecao: "movimentacoes", rotulo: "Movimentações", stateKey: "movimentacoes", porData: true },
+  { checkbox: "reset-compras", colecao: "comprasParceladas", rotulo: "Compras parceladas", stateKey: "comprasParceladas" },
+  { checkbox: "reset-recorrentes", colecao: "recorrentes", rotulo: "Custos recorrentes", stateKey: "recorrentes" },
+  { checkbox: "reset-listaCompras", colecao: "listaCompras", rotulo: "Lista de compras", stateKey: "listaCompras" },
+  { checkbox: "reset-planos", colecao: "planos", rotulo: "Planos", stateKey: "planos" },
+  { checkbox: "reset-cartoes", colecao: "cartoes", rotulo: "Cartões", stateKey: "cartoes" },
+  { checkbox: "reset-lancamentos", colecao: "lancamentos", rotulo: "Lançamentos", stateKey: "lancamentos" }
+];
+
+function statusReset(texto) {
+  document.getElementById("reset-status").textContent = texto;
+}
+
+document.getElementById("btn-zerar-sistema").addEventListener("click", async () => {
+  const confirmacao = document.getElementById("reset-confirmacao").value.trim().toUpperCase();
+  if (confirmacao !== "ZERAR") {
+    return mostrarToast('Digite ZERAR no campo de confirmação para prosseguir.', true);
+  }
+
+  const ateData = document.getElementById("reset-ate-data").value;
+  const zerarConfig = document.getElementById("reset-config").checked;
+  const escolhidas = COLECOES_RESET.filter((c) => document.getElementById(c.checkbox).checked);
+  if (!escolhidas.length && !zerarConfig) return mostrarToast("Marque pelo menos uma coisa para zerar.", true);
+
+  // Monta o que será apagado, respeitando o corte por data quando houver.
+  const plano = escolhidas.map((c) => {
+    let itens = STATE[c.stateKey] || [];
+    if (ateData && c.porData) itens = itens.filter((m) => String(m.data || "") <= ateData);
+    return { ...c, itens };
+  }).filter((c) => c.itens.length);
+
+  const total = plano.reduce((s, c) => s + c.itens.length, 0);
+  if (!total && !zerarConfig) return mostrarToast("Nada a apagar com essas opções.", true);
+
+  const resumo = plano.map((c) => `${c.itens.length} ${c.rotulo.toLowerCase()}`).join(", ");
+  const textoData = ateData ? ` com data até ${dataBR(ateData)}` : "";
+  if (!confirm(`Isso vai arquivar e apagar: ${resumo || "(só as configurações)"}${textoData}.\n\nOs dados continuam consultáveis em "Ver dados arquivados". Confirmar?`)) return;
+
+  const btn = document.getElementById("btn-zerar-sistema");
+  btn.disabled = true;
+  statusReset("Arquivando…");
+
+  const resetId = "reset_" + Date.now();
+  const quando = new Date().toISOString();
+
+  try {
+    let feitos = 0;
+    for (const c of plano) {
+      // 1) Copia pro arquivo, 2) apaga da coleção original. Em lotes de 200
+      // registros (cada um gasta 2 operações e o writeBatch aceita 500).
+      for (let i = 0; i < c.itens.length; i += 200) {
+        const fatia = c.itens.slice(i, i + 200);
+        const batch = writeBatch(db);
+        fatia.forEach((item) => {
+          const { id, ...dados } = item;
+          batch.set(doc(collection(db, "arquivo")), {
+            resetId, arquivadoEm: quando, colecaoOrigem: c.colecao,
+            idOriginal: id, dados: JSON.parse(JSON.stringify(dados))
+          });
+          batch.delete(doc(db, c.colecao, id));
+        });
+        await batch.commit();
+        feitos += fatia.length;
+        statusReset(`Arquivando… ${feitos} de ${total}`);
+      }
+    }
+
+    if (zerarConfig) {
+      await setDoc(doc(db, "config", "geral"), { rendaMensal: 0, saldoInicial: 0 }, { merge: true });
+    }
+
+    // Ficha da limpeza, pro filtro do modal de arquivo.
+    await setDoc(doc(db, "resets", resetId), {
+      quando, total, ateData: ateData || null, zerouConfig: zerarConfig,
+      resumo: resumo || "só as configurações",
+      colecoes: plano.map((c) => c.colecao)
+    });
+
+    // Registro permanente no Histórico (que nunca é apagado).
+    await addDoc(collection(db, "historico"), {
+      nomeLancamento: "Sistema", campo: "Zerar controle financeiro",
+      valorAnterior: resumo || "configurações", valorNovo: `arquivado em ${resetId}`,
+      tipoAlteracao: "Reset", dataHora: serverTimestamp()
+    });
+
+    document.getElementById("reset-confirmacao").value = "";
+    statusReset(`Pronto — ${total} registro(s) arquivado(s) e removido(s) em ${new Date().toLocaleString("pt-BR")}.`);
+    mostrarToast(`Sistema zerado. ${total} registro(s) guardado(s) no arquivo.`);
+  } catch (err) {
+    statusReset("");
+    mostrarToast("Não foi possível zerar: " + err.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+/* ══════════════ CONSULTA AO ARQUIVO ══════════════ */
+
+// O arquivo não fica em memória o tempo todo (pode ser grande e não entra em
+// nenhum cálculo) — é lido sob demanda, só quando o modal abre.
+let arquivoCarregado = [];
+let resetsCarregados = [];
+
+async function abrirModalArquivo() {
+  document.getElementById("modal-arquivo").classList.add("active");
+  document.getElementById("arquivo-body").innerHTML = '<tr><td colspan="6" class="empty">Carregando…</td></tr>';
+  try {
+    const [snapArquivo, snapResets] = await Promise.all([
+      getDocs(collection(db, "arquivo")),
+      getDocs(collection(db, "resets"))
+    ]);
+    arquivoCarregado = snapArquivo.docs.map((d) => ({ id: d.id, ...d.data() }));
+    resetsCarregados = snapResets.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => String(b.quando).localeCompare(String(a.quando)));
+
+    const sel = document.getElementById("arquivo-filtro-reset");
+    sel.innerHTML = '<option value="">Todas as limpezas</option>' +
+      resetsCarregados.map((r) => {
+        const quando = r.quando ? new Date(r.quando).toLocaleString("pt-BR") : r.id;
+        return `<option value="${esc(r.id)}">${esc(quando)} — ${esc(r.resumo || "")}</option>`;
+      }).join("");
+
+    renderArquivo();
+  } catch (err) {
+    document.getElementById("arquivo-body").innerHTML =
+      `<tr><td colspan="6" class="empty">Não foi possível ler o arquivo: ${esc(err.message)}</td></tr>`;
+  }
+}
+
+function itensArquivoFiltrados() {
+  const filtro = document.getElementById("arquivo-filtro-reset").value;
+  const lista = filtro ? arquivoCarregado.filter((a) => a.resetId === filtro) : arquivoCarregado;
+  // Mais recente primeiro; dentro da mesma limpeza, pela data do registro.
+  return [...lista].sort((a, b) =>
+    String(b.arquivadoEm || "").localeCompare(String(a.arquivadoEm || "")) ||
+    String((b.dados || {}).data || "").localeCompare(String((a.dados || {}).data || ""))
+  );
+}
+
+// Nome amigável de um registro arquivado: usa o lançamento quando ele ainda
+// existe, senão cai pra descrição original do banco ou pro nome do item.
+function descricaoArquivo(item) {
+  const d = item.dados || {};
+  const l = d.lancamentoId ? mapaLancamentos()[d.lancamentoId] : null;
+  return l ? l.nome : (d.nome || d.descricao || d.descricaoOrigem || "(sem descrição)");
+}
+
+const ROTULO_COLECAO = {
+  movimentacoes: "Movimentação", comprasParceladas: "Compra parcelada", recorrentes: "Recorrente",
+  listaCompras: "Lista de compras", planos: "Plano", cartoes: "Cartão", lancamentos: "Lançamento"
+};
+
+function renderArquivo() {
+  const itens = itensArquivoFiltrados();
+  document.getElementById("arquivo-contador").textContent = `${itens.length} registro(s)`;
+  const body = document.getElementById("arquivo-body");
+  if (!itens.length) {
+    body.innerHTML = '<tr><td colspan="6" class="empty">Nenhum dado arquivado ainda.</td></tr>';
+    return;
+  }
+  // Teto de exibição: o resto sai no CSV, pra não travar a tela com milhares
+  // de linhas de uma vez.
+  body.innerHTML = itens.slice(0, 500).map((a) => {
+    const d = a.dados || {};
+    const quando = a.arquivadoEm ? new Date(a.arquivadoEm).toLocaleDateString("pt-BR") : "—";
+    const situacao = typeof d.pago === "boolean"
+      ? `<span class="stamp ${d.pago ? "pago" : "pendente"}">${d.pago ? "PAGO" : "PENDENTE"}</span>` : "—";
+    return `<tr><td>${esc(quando)}</td><td>${esc(ROTULO_COLECAO[a.colecaoOrigem] || a.colecaoOrigem)}</td>` +
+      `<td>${d.data ? dataBR(d.data) : "—"}</td><td>${esc(descricaoArquivo(a))}</td>` +
+      `<td class="num">${d.valor != null ? moeda(d.valor) : (d.valorTotal != null ? moeda(d.valorTotal) : "—")}</td>` +
+      `<td>${situacao}</td></tr>`;
+  }).join("") + (itens.length > 500
+    ? `<tr><td colspan="6" class="empty">Mostrando os 500 mais recentes de ${itens.length}. Use "Baixar arquivo em CSV" para ver tudo.</td></tr>`
+    : "");
+}
+
+document.getElementById("btn-ver-arquivo").addEventListener("click", abrirModalArquivo);
+document.getElementById("arquivo-filtro-reset").addEventListener("change", renderArquivo);
+document.getElementById("btn-fechar-arquivo").addEventListener("click", () => {
+  document.getElementById("modal-arquivo").classList.remove("active");
+});
+document.getElementById("modal-arquivo").addEventListener("click", (e) => {
+  if (e.target.id === "modal-arquivo") document.getElementById("modal-arquivo").classList.remove("active");
+});
+
+document.getElementById("btn-baixar-arquivo").addEventListener("click", async () => {
+  if (!arquivoCarregado.length) {
+    try {
+      const snap = await getDocs(collection(db, "arquivo"));
+      arquivoCarregado = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    } catch (err) {
+      return mostrarToast("Não foi possível ler o arquivo: " + err.message, true);
+    }
+  }
+  if (!arquivoCarregado.length) return mostrarToast("Não há nada arquivado ainda.");
+
+  const linhas = [["Arquivado em", "Limpeza", "Tipo", "Data", "Descrição", "Valor", "Situação", "Quem comprou", "Banco"]];
+  arquivoCarregado.forEach((a) => {
+    const d = a.dados || {};
+    linhas.push([
+      a.arquivadoEm ? new Date(a.arquivadoEm).toLocaleString("pt-BR") : "",
+      a.resetId || "", ROTULO_COLECAO[a.colecaoOrigem] || a.colecaoOrigem || "",
+      d.data || "", descricaoArquivo(a),
+      d.valor != null ? d.valor : (d.valorTotal != null ? d.valorTotal : ""),
+      typeof d.pago === "boolean" ? (d.pago ? "Pago" : "Pendente") : "",
+      d.responsavel || "", d.instituicao || ""
+    ]);
+  });
+  // Ponto e vírgula + BOM: é o que o Excel em português abre sem bagunçar.
+  const csv = "\uFEFF" + linhas.map((l) => l.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(";")).join("\r\n");
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `arquivo-financeiro-${formatarDataISO(new Date())}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
 });
 
 /* ══════════════ LISTENERS EM TEMPO REAL ══════════════ */

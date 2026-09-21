@@ -254,3 +254,49 @@ previsão em vez de duplicar.
   Pluggy/Code.gs, o resto do sistema (Movimentações, Cartão, Recorrentes,
   Planos etc.) funciona 100% normalmente — a aba só mostra um erro amigável
   se você tentar conectar um banco sem ter configurado `PLUGGY_PROXY_URL`.
+
+## Zerar o controle financeiro (e consultar o que foi zerado)
+
+Em **Configurações** existe o card "⚠️ Zerar controle financeiro". Ele serve
+pra recomeçar do zero a partir de uma data, sem perder o passado.
+
+Como funciona:
+
+1. Marque o que quer limpar (por padrão: movimentações e compras parceladas;
+   lançamentos, cartões e pessoas ficam desmarcados, porque normalmente você
+   quer manter os cadastros).
+2. Opcionalmente preencha **"Apagar só até a data"** — só as movimentações
+   até aquele dia (inclusive) são apagadas. Deixando em branco, apaga tudo
+   do que estiver marcado.
+3. Digite `ZERAR` no campo de confirmação e clique em **Zerar agora**.
+
+Antes de apagar qualquer coisa, o sistema **copia tudo** pra uma coleção
+`arquivo` no Firestore, junto com uma ficha da limpeza em `resets`. Depois é
+só clicar em **"📦 Ver dados arquivados"** pra consultar (filtrando por
+limpeza) ou em **"Baixar arquivo em CSV"** pra abrir no Excel. O arquivo é
+só-leitura: não entra em nenhum cálculo, KPI ou gráfico do sistema.
+
+O **Histórico de Alterações** nunca é apagado — as regras do Firestore nem
+permitem. Cada limpeza também deixa um registro lá.
+
+> **Importante:** as coleções `arquivo` e `resets` precisam das regras novas.
+> Se você já tinha publicado o `firestore.rules` antes desta versão, publique
+> de novo (Firebase Console > Firestore > Regras), senão o botão de zerar vai
+> falhar com erro de permissão.
+
+## Revisar e classificar movimentações
+
+Na aba **Movimentações**:
+
+- O filtro **Revisão** separa o que ainda falta conferir ("Só a revisar") do
+  que já foi ("Só já revisadas"). Vale pra qualquer movimentação, não só as
+  importadas do banco.
+- **🔍 Modo revisão** abre uma movimentação por vez, com valor em destaque e
+  os campos pra classificar. Atalhos: `Enter` confirma e avança, `→` pula,
+  `Esc` fecha. Ao confirmar uma transação importada do banco, o sistema
+  aprende a regra e já categoriza sozinho as próximas parecidas.
+- Os **checkboxes** de cada linha (mais "Selecionar tudo do filtro") liberam
+  a barra de ações em lote: aplicar um lançamento, definir quem comprou,
+  marcar como revisadas/pagas/pendentes ou excluir várias de uma vez.
+- **Itens por página** vai de 30 até "Todas", e a paginação tem botões de
+  primeira/última página.
