@@ -49,6 +49,14 @@
 
 var PLUGGY_API_BASE = "https://api.pluggy.ai";
 
+// Teste rápido: abra a URL "/exec" no navegador. Se aparecer {"ok":true,...}
+// o Apps Script está no ar e com acesso liberado. Se aparecer uma página de
+// login do Google ou de erro, a implantação está errada (veja o README,
+// "Conexões Bancárias > se aparecer erro de sincronização").
+function doGet() {
+  return json_({ ok: true, status: "proxy no ar" });
+}
+
 function doPost(e) {
   var body = {};
   try { body = JSON.parse(e.postData.contents); } catch (err) {}

@@ -341,3 +341,36 @@ reconhecimento às movimentações do banco que já estavam esperando revisão.
 cor de destaque/bordas (o padrão é branco com dourado neon). Há atalhos prontos
 (preto + dourado, preto + verde neon, azul) e "Restaurar padrão". As cores
 ficam salvas no navegador em que você escolheu.
+
+## Arquivo com validade de 90 dias
+
+Tudo que vai para o arquivo ("Zerar controle financeiro" e "Resetar tudo") fica
+guardado por **90 dias** e depois é **apagado permanentemente**, pra não
+sobrecarregar o banco. A limpeza roda sozinha sempre que o app abre (e antes de
+abrir "Ver dados arquivados"); a coluna "Apaga em" mostra a data de cada item.
+Se quiser guardar algo por mais tempo, use "Baixar arquivo em CSV" antes.
+
+## Se aparecer "Integração bancária indisponível" (ou erro de sincronização)
+
+Significa que o Apps Script (`Code.gs`) devolveu uma página do Google em vez de
+dados. Isso é problema de implantação, não do seu banco (a conexão **não** é
+marcada como ERRO por causa disso). Confira, nesta ordem:
+
+1. Abra a URL `/exec` (a que está em `PLUGGY_PROXY_URL`, no `firebase-init.js`)
+   direto no navegador. O certo é aparecer `{"ok":true,"status":"proxy no ar"}`
+   (isso exige colar o `Code.gs` desta versão e reimplantar).
+2. Apps Script > **Implantar > Gerenciar implantações** > lápis > **Versão: Nova
+   versão** > Implantar. Salvar o código sozinho não atualiza a URL publicada.
+3. Na implantação: **Executar como: Eu** e **Quem pode acessar: Qualquer pessoa**.
+4. Se o Google pedir, autorize de novo (Executar uma função no editor e aceitar
+   as permissões) — sem isso ele responde uma página de "Autorização necessária".
+5. Se você criou uma implantação NOVA, a URL `/exec` muda: cole a nova no
+   `firebase-init.js` e suba o arquivo.
+
+## Ícone do app
+
+O ícone (letra L dourada, moeda e gráfico) está em `icon-192.png`,
+`icon-512.png`, `icon-maskable-512.png` (Android, cortado em círculo/quadrado
+arredondado), `apple-touch-icon.png` (iPhone) e `favicon*` (aba do navegador).
+Celular e PC guardam o ícone antigo em cache: **remova o app da tela inicial e
+instale de novo** (no PC: desinstalar o app instalado e instalar outra vez).

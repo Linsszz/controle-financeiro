@@ -3351,10 +3351,26 @@ async function chamarProxyPluggy(body) {
   if (!PLUGGY_PROXY_URL || PLUGGY_PROXY_URL.startsWith("COLE_AQUI")) {
     throw new Error("Configure PLUGGY_PROXY_URL em firebase-init.js primeiro (veja o README).");
   }
-  const resp = await fetch(PLUGGY_PROXY_URL, {
-    method: "POST",
-    body: JSON.stringify(body)
-  }).then((r) => r.json());
+  // Lê como texto e só depois tenta JSON: quando o Apps Script não está
+  // implantado direito ele devolve uma PÁGINA HTML (login/erro do Google), e
+  // chamar r.json() direto gerava o erro cru "Unexpected token '<'".
+  let resp;
+  try {
+    const r = await fetch(PLUGGY_PROXY_URL, { method: "POST", body: JSON.stringify(body) });
+    const texto = await r.text();
+    try {
+      resp = JSON.parse(texto);
+    } catch (e) {
+      const erro = new Error('Integração bancária indisponível: o Apps Script respondeu uma página em vez de dados. Reimplante o Code.gs como Aplicativo da Web (acesso "Qualquer pessoa") e confira a URL em firebase-init.js.');
+      erro.proxyIndisponivel = true;
+      throw erro;
+    }
+  } catch (err) {
+    if (err.proxyIndisponivel) throw err;
+    const erro = new Error("Não consegui falar com o serviço de integração bancária (sem internet ou bloqueado). Tente de novo em instantes.");
+    erro.proxyIndisponivel = true;
+    throw erro;
+  }
   if (!resp || resp.ok === false) {
     throw new Error((resp && resp.erro) || "Erro na integração bancária.");
   }
@@ -3771,7 +3787,11 @@ async function aplicarFifoCartao(instituicao) {
   return mudancas;
 }
 
-async function sincronizarConexao(conexaoId) {
+// Aviso de "proxy fora do ar" no auto-sync: uma vez por sessão, pra não empilhar
+// um toast por banco conectado toda vez que o app abre.
+let avisoProxyMostrado = false;
+
+async function sincronizarConexao(conexaoId, automatica = false) {
   const conexao = STATE.conexoesBancarias.find((c) => c.id === conexaoId);
   if (!conexao) return mostrarToast("Conexão não encontrada.", true);
   try {
@@ -3993,6 +4013,13 @@ async function sincronizarConexao(conexaoId) {
     const sufixo = partesResumo.length ? ` (${partesResumo.join(", ")})` : "";
     mostrarToast(`${novas.length} transação(ões) importada(s) de ${conexao.instituicao || "banco"}${sufixo}. Recategorize em Movimentações se quiser.`);
   } catch (err) {
+    if (err.proxyIndisponivel) {
+      // O problema é o serviço intermediário, não o banco: não marca a
+      // conexão como ERRO (ela continua válida assim que o proxy voltar).
+      if (!automatica || !avisoProxyMostrado) mostrarToast(err.message, true);
+      avisoProxyMostrado = true;
+      return;
+    }
     mostrarToast("Não foi possível sincronizar: " + err.message, true);
     try { await updateDoc(doc(db, "conexoesBancarias", conexaoId), { status: "erro" }); } catch (err2) { /* ignora falha secundária */ }
   }
@@ -4158,13 +4185,43 @@ document.getElementById("btn-zerar-sistema").addEventListener("click", async () 
 
 // O arquivo não fica em memória o tempo todo (pode ser grande e não entra em
 // nenhum cálculo) — é lido sob demanda, só quando o modal abre.
+// Retenção: itens arquivados (e a ficha de cada limpeza) valem por 90 dias e
+// depois são APAGADOS DE VEZ, pra não inchar o banco. Roda sozinho ao abrir o
+// app (site estático, sem servidor) e também antes de abrir "Ver dados
+// arquivados". Datas ficam em ISO, então a comparação por texto é segura.
+const DIAS_RETENCAO_ARQUIVO = 90;
+
+async function limparArquivoAntigo() {
+  const corte = new Date(Date.now() - DIAS_RETENCAO_ARQUIVO * 86400000).toISOString();
+  let apagados = 0;
+  try {
+    for (const alvo of [{ nome: "arquivo", campo: "arquivadoEm" }, { nome: "resets", campo: "quando" }]) {
+      const snap = await getDocs(query(collection(db, alvo.nome), where(alvo.campo, "<", corte)));
+      for (let i = 0; i < snap.docs.length; i += 400) {
+        const batch = writeBatch(db);
+        snap.docs.slice(i, i + 400).forEach((d) => batch.delete(d.ref));
+        await batch.commit();
+      }
+      apagados += snap.docs.length;
+    }
+    if (apagados) {
+      arquivoCarregado = arquivoCarregado.filter((a) => String(a.arquivadoEm || "") >= corte);
+      console.log(`[arquivo] ${apagados} registro(s) com mais de ${DIAS_RETENCAO_ARQUIVO} dias apagado(s) permanentemente.`);
+    }
+  } catch (err) {
+    console.warn("[arquivo] não foi possível limpar registros antigos:", err.message);
+  }
+}
+setTimeout(limparArquivoAntigo, 5000);
+
 let arquivoCarregado = [];
 let resetsCarregados = [];
 
 async function abrirModalArquivo() {
   document.getElementById("modal-arquivo").classList.add("active");
-  document.getElementById("arquivo-body").innerHTML = '<tr><td colspan="6" class="empty">Carregando…</td></tr>';
+  document.getElementById("arquivo-body").innerHTML = '<tr><td colspan="7" class="empty">Carregando…</td></tr>';
   try {
+    await limparArquivoAntigo();
     const [snapArquivo, snapResets] = await Promise.all([
       getDocs(collection(db, "arquivo")),
       getDocs(collection(db, "resets"))
@@ -4184,7 +4241,7 @@ async function abrirModalArquivo() {
     renderArquivo();
   } catch (err) {
     document.getElementById("arquivo-body").innerHTML =
-      `<tr><td colspan="6" class="empty">Não foi possível ler o arquivo: ${esc(err.message)}</td></tr>`;
+      `<tr><td colspan="7" class="empty">Não foi possível ler o arquivo: ${esc(err.message)}</td></tr>`;
   }
 }
 
@@ -4216,7 +4273,7 @@ function renderArquivo() {
   document.getElementById("arquivo-contador").textContent = `${itens.length} registro(s)`;
   const body = document.getElementById("arquivo-body");
   if (!itens.length) {
-    body.innerHTML = '<tr><td colspan="6" class="empty">Nenhum dado arquivado ainda.</td></tr>';
+    body.innerHTML = '<tr><td colspan="7" class="empty">Nenhum dado arquivado ainda.</td></tr>';
     return;
   }
   // Teto de exibição: o resto sai no CSV, pra não travar a tela com milhares
@@ -4229,9 +4286,9 @@ function renderArquivo() {
     return `<tr><td>${esc(quando)}</td><td>${esc(ROTULO_COLECAO[a.colecaoOrigem] || a.colecaoOrigem)}</td>` +
       `<td>${d.data ? dataBR(d.data) : "—"}</td><td>${esc(descricaoArquivo(a))}</td>` +
       `<td class="num">${d.valor != null ? moeda(d.valor) : (d.valorTotal != null ? moeda(d.valorTotal) : "—")}</td>` +
-      `<td>${situacao}</td></tr>`;
+      `<td>${situacao}</td><td>${esc(a.arquivadoEm ? new Date(new Date(a.arquivadoEm).getTime() + DIAS_RETENCAO_ARQUIVO * 86400000).toLocaleDateString("pt-BR") : "—")}</td></tr>`;
   }).join("") + (itens.length > 500
-    ? `<tr><td colspan="6" class="empty">Mostrando os 500 mais recentes de ${itens.length}. Use "Baixar arquivo em CSV" para ver tudo.</td></tr>`
+    ? `<tr><td colspan="7" class="empty">Mostrando os 500 mais recentes de ${itens.length}. Use "Baixar arquivo em CSV" para ver tudo.</td></tr>`
     : "");
 }
 
@@ -4694,7 +4751,7 @@ function iniciarListeners() {
     STATE.conexoesBancarias.forEach((c) => {
       if (!conexoesAutoSincronizadasNestaSessao.has(c.id)) {
         conexoesAutoSincronizadasNestaSessao.add(c.id);
-        sincronizarConexao(c.id);
+        sincronizarConexao(c.id, true);
       }
     });
   }, (err) => mostrarToast("Erro ao carregar conexões bancárias: " + err.message, true));
