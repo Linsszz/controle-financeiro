@@ -9,7 +9,7 @@
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
-<meta name="theme-color" content="#050706">
+<meta name="theme-color" content="#F5C400">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -23,6 +23,17 @@
      Carregado uma vez aqui; só é inicializado (window.PluggyConnect) quando
      o usuário clica em "+ Conectar novo banco" no app.js. -->
 <script src="https://cdn.pluggy.ai/pluggy-connect/latest/pluggy-connect.js"></script>
+<script>
+  /* Aplica as cores salvas antes da página aparecer (evita piscar o tema padrão). */
+  try {
+    var t = JSON.parse(localStorage.getItem("finleo-tema") || "null");
+    if (t && t.bg) {
+      var r = document.documentElement.style;
+      r.setProperty("--bg", t.bg); r.setProperty("--panel", t.panel); r.setProperty("--ink", t.ink);
+      r.setProperty("--accent", t.accent); r.setProperty("--sidebar-bg", t.sidebar);
+    }
+  } catch (e) {}
+</script>
 </head>
 <body>
 
@@ -41,6 +52,7 @@
     <a data-view="dashboard" class="active"><span class="ico">📊</span>Dashboard</a>
     <a data-view="movimentacoes"><span class="ico">💸</span>Movimentações</a>
     <a data-view="contasPagar"><span class="ico">🧾</span>Contas a Pagar</a>
+    <a data-view="dinheiroExtra"><span class="ico">💰</span>Dinheiro extra</a>
     <a data-view="lancamentos"><span class="ico">🏷️</span>Lançamentos</a>
     <a data-view="cartao"><span class="ico">💳</span>Cartão de Crédito</a>
     <a data-view="conexoes"><span class="ico">🏦</span>Conexões Bancárias</a>
@@ -188,13 +200,6 @@
           <input type="number" step="0.01" id="mov-valor" placeholder="0,00">
         </div>
         <div class="field">
-          <label>Quem comprou</label>
-          <div class="select-add">
-            <select id="mov-responsavel"><option value="">— Não informado —</option></select>
-            <button type="button" class="btn-add-inline" data-abrir-nova-pessoa="mov-responsavel" title="Cadastrar nova pessoa">+</button>
-          </div>
-        </div>
-        <div class="field">
           <label>Situação</label>
           <select id="mov-pago">
             <option value="false">Não pago</option>
@@ -229,10 +234,6 @@
             <option value="Saida">Só Saída</option>
             <option value="Transferencia">Só Transferência</option>
           </select>
-        </div>
-        <div class="field" style="max-width:200px;">
-          <label>Pessoa</label>
-          <select id="mov-filtro-pessoa"><option value="">Todas as pessoas</option></select>
         </div>
         <div class="field" style="max-width:200px;">
           <label>Banco</label>
@@ -276,7 +277,6 @@
       <div class="barra-lote hidden" id="mov-barra-lote">
         <span class="lote-contador" id="lote-contador"></span>
         <select id="lote-lancamento"><option value="">Aplicar lançamento…</option></select>
-        <select id="lote-pessoa"><option value="">— Não informado —</option></select>
         <button class="btn btn-small" id="btn-lote-revisadas">Marcar revisadas</button>
         <button class="btn btn-small" id="btn-lote-pagas">Marcar pagas</button>
         <button class="btn btn-small" id="btn-lote-pendentes">Marcar pendentes</button>
@@ -286,8 +286,8 @@
       </div>
 
       <table>
-        <thead><tr><th class="col-check"><input type="checkbox" id="mov-check-todos" title="Selecionar/desmarcar a página"></th><th>Data</th><th>Lançamento</th><th>Banco</th><th>Tipo</th><th>Categoria</th><th>Quem comprou</th><th>Valor</th><th>Situação</th></tr></thead>
-        <tbody id="movs-body"><tr><td colspan="9" class="empty">Carregando…</td></tr></tbody>
+        <thead><tr><th class="col-check"><input type="checkbox" id="mov-check-todos" title="Selecionar/desmarcar a página"></th><th>Data</th><th>Lançamento</th><th>Banco</th><th>Tipo</th><th>Categoria</th><th>Valor</th><th>Situação</th></tr></thead>
+        <tbody id="movs-body"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
       </table>
       <div class="paginacao" id="mov-paginacao"></div>
     </div>
@@ -312,21 +312,55 @@
     <div class="card">
       <h2>Falta pagar</h2>
       <table>
-        <thead><tr><th>Vencimento</th><th>Lançamento</th><th>Categoria</th><th>Quem comprou</th><th>Valor</th><th>Situação</th></tr></thead>
-        <tbody id="cp-pendentes-body"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
+        <thead><tr><th>Vencimento</th><th>Lançamento</th><th>Categoria</th><th>Valor</th><th>Situação</th></tr></thead>
+        <tbody id="cp-pendentes-body"><tr><td colspan="5" class="empty">Carregando…</td></tr></tbody>
       </table>
     </div>
 
     <div class="card">
       <h2>Já pago</h2>
       <table>
-        <thead><tr><th>Vencimento</th><th>Lançamento</th><th>Categoria</th><th>Quem comprou</th><th>Valor</th><th>Situação</th></tr></thead>
-        <tbody id="cp-pagas-body"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
+        <thead><tr><th>Vencimento</th><th>Lançamento</th><th>Categoria</th><th>Valor</th><th>Situação</th></tr></thead>
+        <tbody id="cp-pagas-body"><tr><td colspan="5" class="empty">Carregando…</td></tr></tbody>
       </table>
     </div>
   </section>
 
   <!-- LANÇAMENTOS -->
+  <section id="view-dinheiroExtra" class="view">
+    <header class="top"><div><h1>Dinheiro extra</h1>
+      <p class="view-desc">Valores que vão entrar além da rotina (freelas, reembolsos, vendas...). Defina a data prevista e marque quando o dinheiro de fato entrar — o que já entrou soma no Saldo atual e o que ainda vai entrar aparece no Saldo previsto do Dashboard.</p>
+    </div></header>
+
+    <div class="kpi-grid" id="extra-kpi-grid"></div>
+
+    <div class="card">
+      <h2>Novo dinheiro extra</h2>
+      <div class="row">
+        <div class="field"><label>Descrição</label><input type="text" id="extra-descricao" placeholder="Ex: Freela, reembolso, venda..."></div>
+        <div class="field" style="max-width:170px;"><label>Valor (R$)</label><input type="number" step="0.01" id="extra-valor"></div>
+        <div class="field" style="max-width:190px;"><label>Data prevista</label><input type="date" id="extra-data"></div>
+        <div class="field" style="max-width:170px;"><label>Situação</label>
+          <select id="extra-recebido"><option value="false">A receber</option><option value="true">Já entrou</option></select>
+        </div>
+        <button class="btn btn-primary" id="btn-add-extra">Adicionar</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="row" style="justify-content:space-between;align-items:flex-end;">
+        <h2 style="margin:0;">Lista</h2>
+        <div class="field" style="max-width:190px;"><label>Mostrar</label>
+          <select id="extra-filtro"><option value="">Todos</option><option value="pendente">A receber</option><option value="recebido">Já entrou</option></select>
+        </div>
+      </div>
+      <table>
+        <thead><tr><th>Data prevista</th><th>Descrição</th><th>Valor</th><th>Situação</th><th>Ações</th></tr></thead>
+        <tbody id="extra-body"><tr><td colspan="5" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
   <section id="view-lancamentos" class="view">
     <header class="top"><div><h1>Lançamentos</h1>
       <p class="view-desc">Aqui você cadastra os "nomes" que vão aparecer nos campos de seleção das outras abas (ex: Salário, Aluguel, Mercado). Cada lançamento define se é Entrada ou Saída e a categoria — é o que organiza os relatórios. Cadastre um lançamento antes de registrar a movimentação em si.</p>
@@ -432,13 +466,6 @@
           <label>Descrição</label>
           <input type="text" id="compra-descricao" placeholder="Ex: Notebook, Geladeira...">
         </div>
-        <div class="field">
-          <label>Quem comprou</label>
-          <div class="select-add">
-            <select id="compra-responsavel"><option value="">— Não informado —</option></select>
-            <button type="button" class="btn-add-inline" data-abrir-nova-pessoa="compra-responsavel" title="Cadastrar nova pessoa">+</button>
-          </div>
-        </div>
       </div>
       <div class="row" style="margin-top:10px;">
         <div class="field">
@@ -460,19 +487,19 @@
 
     <div class="card">
       <h2>Compras parceladas</h2>
-      <p class="hint" style="margin-top:0;">Clique numa linha para editar a descrição, quem comprou ou excluir a compra.</p>
+      <p class="hint" style="margin-top:0;">Clique numa linha para editar a descrição ou excluir a compra.</p>
       <table>
-        <thead><tr><th>Descrição</th><th>Cartão</th><th>Quem comprou</th><th>Valor total</th><th>Parcelas</th><th>Valor/parcela</th><th>Data da compra</th></tr></thead>
-        <tbody id="compras-body"><tr><td colspan="7" class="empty">Carregando…</td></tr></tbody>
+        <thead><tr><th>Descrição</th><th>Cartão</th><th>Valor total</th><th>Parcelas</th><th>Valor/parcela</th><th>Data da compra</th></tr></thead>
+        <tbody id="compras-body"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
       </table>
     </div>
 
     <div class="card">
       <h2>Gastos lançados no cartão (parcelas)</h2>
-      <p class="hint" style="margin-top:0;">Todas as parcelas já lançadas em Movimentações a partir de uma compra no cartão. Clique numa linha para <strong>corrigir valor, data, quem comprou ou situação</strong> em caso de erro de lançamento — toda alteração fica registrada no Histórico.</p>
+      <p class="hint" style="margin-top:0;">Todas as parcelas já lançadas em Movimentações a partir de uma compra no cartão. Clique numa linha para <strong>corrigir valor, data ou situação</strong> em caso de erro de lançamento — toda alteração fica registrada no Histórico.</p>
       <table>
-        <thead><tr><th>Data</th><th>Compra</th><th>Cartão</th><th>Quem comprou</th><th>Valor</th><th>Situação</th></tr></thead>
-        <tbody id="parcelas-cartao-body"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
+        <thead><tr><th>Data</th><th>Compra</th><th>Cartão</th><th>Valor</th><th>Situação</th></tr></thead>
+        <tbody id="parcelas-cartao-body"><tr><td colspan="5" class="empty">Carregando…</td></tr></tbody>
       </table>
     </div>
   </section>
@@ -707,6 +734,39 @@
       <p class="hint">O saldo inicial é o valor que você tem em caixa/conta hoje, antes das movimentações já pagas registradas no sistema. A renda mensal é usada para calcular o percentual de renda gasta e o gasto permitido até hoje.</p>
     </div>
 
+    <div class="card">
+      <h2>Reconhecimento automático de transações</h2>
+      <p class="hint" style="margin-top:0;">Ao importar do banco, o sistema reconhece padrões (Uber → Transporte, iFood → Alimentação...) e manda o que não reconhece para revisão. Informe abaixo <strong>o seu nome como aparece nos Pix</strong>: transferências entre contas suas viram "Transferência" e não contam como ganho nem gasto.</p>
+      <div class="row">
+        <div class="field"><label>Meus nomes (separe por vírgula)</label><input type="text" id="cfg-nomes-proprios" placeholder="LEONARDO DA SILVA LINS"></div>
+        <button class="btn btn-primary" id="btn-salvar-nomes">Salvar</button>
+        <button class="btn" id="btn-reclassificar">Reclassificar a revisar</button>
+      </div>
+      <p class="hint" id="reclassificar-status"></p>
+    </div>
+
+    <div class="card">
+      <h2>🎨 Aparência</h2>
+      <p class="hint" style="margin-top:0;">Escolha as cores do app. O padrão é branco com dourado; as bordas e brilhos seguem a cor de destaque. Fica salvo neste navegador.</p>
+      <div class="tema-grid">
+        <div class="tema-cor"><label>Fundo</label><input type="color" id="tema-bg"></div>
+        <div class="tema-cor"><label>Cartões</label><input type="color" id="tema-panel"></div>
+        <div class="tema-cor"><label>Menu lateral</label><input type="color" id="tema-sidebar"></div>
+        <div class="tema-cor"><label>Texto</label><input type="color" id="tema-ink"></div>
+        <div class="tema-cor"><label>Destaque / bordas</label><input type="color" id="tema-accent"></div>
+      </div>
+      <div class="tema-presets">
+        <button class="btn btn-small" data-tema-preset="dourado">Branco + dourado (padrão)</button>
+        <button class="btn btn-small" data-tema-preset="escuro">Preto + dourado</button>
+        <button class="btn btn-small" data-tema-preset="neon">Preto + verde neon</button>
+        <button class="btn btn-small" data-tema-preset="azul">Branco + azul</button>
+        <button class="btn btn-small" id="btn-tema-restaurar">Restaurar padrão</button>
+      </div>
+      <div class="tema-preview">
+        <strong>Pré-visualização</strong><span class="stamp pago">PAGO</span><span class="stamp pendente">PENDENTE</span><button class="btn btn-primary btn-small" type="button">Botão</button>
+      </div>
+    </div>
+
     <!-- ZERAR CONTROLE FINANCEIRO -->
     <div class="card card-perigo">
       <h2>⚠️ Zerar controle financeiro</h2>
@@ -718,6 +778,7 @@
         <label><input type="checkbox" id="reset-recorrentes"> Custos recorrentes</label>
         <label><input type="checkbox" id="reset-listaCompras"> Lista de compras</label>
         <label><input type="checkbox" id="reset-planos"> Planos / metas</label>
+        <label><input type="checkbox" id="reset-dinheiroExtra"> Dinheiro extra</label>
         <label><input type="checkbox" id="reset-cartoes"> Cartões de crédito</label>
         <label><input type="checkbox" id="reset-lancamentos"> Lançamentos (categorias)</label>
         <label><input type="checkbox" id="reset-config"> Renda mensal e saldo inicial</label>
@@ -740,10 +801,29 @@
         Se preencher a data, só são apagadas as movimentações <strong>até aquele dia</strong> (inclusive) — útil para fechar o passado e continuar dali pra frente. Deixando em branco, apaga tudo do que estiver marcado acima. O <strong>Histórico de Alterações</strong> nunca é apagado.
       </div>
 
-      <div class="row" style="margin-top:16px;">
+      <div style="text-align:right;margin-top:16px;">
         <button class="btn" id="btn-ver-arquivo">📦 Ver dados arquivados</button>
         <button class="btn btn-small" id="btn-baixar-arquivo">Baixar arquivo em CSV</button>
       </div>
+    </div>
+
+    <!-- RESETAR TUDO: inclui o Histórico, que a limpeza acima não apaga -->
+    <div class="card card-perigo">
+      <h2>🔴 Resetar tudo (começar do zero de verdade)</h2>
+      <p class="view-desc" style="margin-bottom:6px;">Apaga <strong>absolutamente tudo</strong>: movimentações, compras parceladas, recorrentes, lista de compras, planos, cartões, lançamentos, renda/saldo <strong>e também o Histórico de Alterações</strong> (que a limpeza acima nunca apaga). Depois deste botão, o Dashboard, Movimentações e todas as outras abas mostram só o que você cadastrar a partir de agora.</p>
+
+      <div class="arquivo-aviso">
+        Assim como na limpeza acima, tudo é copiado para o arquivo antes de ser apagado — dá pra consultar depois em "Ver dados arquivados". A única diferença é que aqui <strong>nada fica de fora</strong>, nem o Histórico. Logo depois do reset, um único registro novo é criado no Histórico marcando a data em que você recomeçou.
+      </div>
+
+      <div class="row" style="margin-top:14px;">
+        <div class="field" style="max-width:280px;">
+          <label>Digite RESETAR TUDO para confirmar</label>
+          <input type="text" id="resettudo-confirmacao" class="reset-confirma" placeholder="RESETAR TUDO" autocomplete="off">
+        </div>
+        <button class="btn btn-danger" id="btn-resetar-tudo">Resetar tudo agora</button>
+      </div>
+      <p class="hint" id="resettudo-status" style="margin-top:10px;"></p>
     </div>
   </section>
 
@@ -801,13 +881,6 @@
       <input type="number" step="0.01" id="edit-mov-valor">
     </div>
     <div class="field" style="margin-top:10px;">
-      <label>Quem comprou</label>
-      <div class="select-add">
-        <select id="edit-mov-responsavel"><option value="">— Não informado —</option></select>
-        <button type="button" class="btn-add-inline" data-abrir-nova-pessoa="edit-mov-responsavel" title="Cadastrar nova pessoa">+</button>
-      </div>
-    </div>
-    <div class="field" style="margin-top:10px;">
       <label>Situação</label>
       <select id="edit-mov-pago">
         <option value="false">Não pago</option>
@@ -820,6 +893,27 @@
         <button class="btn" id="btn-cancelar-edicao-mov">Cancelar</button>
         <button class="btn btn-primary" id="btn-salvar-edicao-mov">Salvar alterações</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: editar dinheiro extra -->
+<div class="modal-overlay" id="modal-extra">
+  <div class="modal-box">
+    <h2>Editar dinheiro extra</h2>
+    <input type="hidden" id="edit-extra-id">
+    <div class="field" style="margin-top:14px;"><label>Descrição</label><input type="text" id="edit-extra-descricao"></div>
+    <div class="row" style="margin-top:10px;">
+      <div class="field"><label>Valor (R$)</label><input type="number" step="0.01" id="edit-extra-valor"></div>
+      <div class="field"><label>Data prevista</label><input type="date" id="edit-extra-data"></div>
+    </div>
+    <div class="field" style="margin-top:10px;"><label>Situação</label>
+      <select id="edit-extra-recebido"><option value="false">A receber</option><option value="true">Já entrou</option></select>
+    </div>
+    <div class="row" style="justify-content:flex-end;margin-top:18px;">
+      <button class="btn btn-danger" id="btn-excluir-extra">Excluir</button>
+      <button class="btn" id="btn-cancelar-extra">Cancelar</button>
+      <button class="btn btn-primary" id="btn-salvar-extra">Salvar</button>
     </div>
   </div>
 </div>
@@ -879,13 +973,6 @@
 
     <div class="row" style="margin-top:10px;">
       <div class="field">
-        <label>Quem comprou</label>
-        <div class="select-add">
-          <select id="rev-responsavel"><option value="">— Não informado —</option></select>
-          <button type="button" class="btn-add-inline" data-abrir-nova-pessoa="rev-responsavel" title="Cadastrar nova pessoa">+</button>
-        </div>
-      </div>
-      <div class="field" style="max-width:150px;">
         <label>Situação</label>
         <select id="rev-pago">
           <option value="false">Não pago</option>
@@ -1070,13 +1157,6 @@
       <label>Descrição</label>
       <input type="text" id="edit-compra-descricao">
     </div>
-    <div class="field" style="margin-top:10px;">
-      <label>Quem comprou</label>
-      <div class="select-add">
-        <select id="edit-compra-responsavel"><option value="">— Não informado —</option></select>
-        <button type="button" class="btn-add-inline" data-abrir-nova-pessoa="edit-compra-responsavel" title="Cadastrar nova pessoa">+</button>
-      </div>
-    </div>
     <div class="row" style="margin-top:10px;">
       <div class="field">
         <label>Valor total (R$)</label>
@@ -1104,20 +1184,6 @@
   </div>
 </div>
 
-<!-- MODAL: nova pessoa (reutilizado a partir de qualquer campo "Quem comprou") -->
-<div class="modal-overlay" id="modal-nova-pessoa">
-  <div class="modal-box">
-    <h2>Nova pessoa</h2>
-    <div class="field" style="margin-top:14px;">
-      <label>Nome</label>
-      <input type="text" id="nova-pessoa-nome" placeholder="Ex: Leonardo, Paula...">
-    </div>
-    <div class="row" style="justify-content:flex-end; margin-top:18px;">
-      <button class="btn" id="btn-cancelar-nova-pessoa">Cancelar</button>
-      <button class="btn btn-primary" id="btn-salvar-nova-pessoa">Cadastrar</button>
-    </div>
-  </div>
-</div>
 
 <!-- MODAL: novo/editar plano -->
 <div class="modal-overlay" id="modal-plano">
@@ -1287,13 +1353,6 @@
       </div>
       <div class="row" style="margin-top:10px;">
         <div class="field">
-          <label>Quem comprou</label>
-          <div class="select-add">
-            <select id="qa-mov-responsavel"><option value="">— Não informado —</option></select>
-            <button type="button" class="btn-add-inline" data-abrir-nova-pessoa="qa-mov-responsavel" title="Cadastrar nova pessoa">+</button>
-          </div>
-        </div>
-        <div class="field">
           <label>Situação</label>
           <select id="qa-mov-pago">
             <option value="false">Não pago</option>
@@ -1322,13 +1381,6 @@
       <div class="field" style="margin-top:10px;">
         <label>Descrição</label>
         <input type="text" id="qa-compra-descricao" placeholder="Ex: Ifood, Uber...">
-      </div>
-      <div class="field" style="margin-top:10px;">
-        <label>Quem comprou</label>
-        <div class="select-add">
-          <select id="qa-compra-responsavel"><option value="">— Não informado —</option></select>
-          <button type="button" class="btn-add-inline" data-abrir-nova-pessoa="qa-compra-responsavel" title="Cadastrar nova pessoa">+</button>
-        </div>
       </div>
       <div class="row" style="margin-top:10px;">
         <div class="field"><label>Valor total (R$)</label><input type="number" step="0.01" id="qa-compra-valor"></div>

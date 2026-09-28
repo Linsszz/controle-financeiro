@@ -26,14 +26,13 @@ const STATE = {
   feriados: [],
   planos: [],
   listaCompras: [],
-  pessoas: [],
+  dinheiroExtra: [],
   conexoesBancarias: [],
   cartoesOpenFinance: [],
   regrasCategorizacaoOF: [],
   config: { rendaMensal: 0, saldoInicial: 0 },
   filtroMovMesDe: "",
   filtroMovMesAte: "",
-  filtroMovPessoa: "",
   filtroMovBanco: "",
   filtroMovTipoConta: "",
   filtroMovRevisado: "",
@@ -72,10 +71,6 @@ const conexoesAutoSincronizadasNestaSessao = new Set();
 // selecionar automaticamente o lançamento recém-criado nesse campo.
 let selectAlvoNovoLancamento = null;
 let pendingSelecaoLancamento = null; // { selectId, lancamentoId }
-
-// Mesma ideia, só que pro modal "Nova pessoa" (campo "Quem comprou").
-let selectAlvoNovaPessoa = null;
-let pendingSelecaoPessoa = null; // { selectId, nome }
 
 /* ══════════════ HELPERS ══════════════ */
 
@@ -320,6 +315,15 @@ function calcularDashboard(mes) {
     }
   });
 
+  // Dinheiro extra: entra na renda do mês pela data prevista; só vira saldo
+  // quando marcado como "já entrou".
+  STATE.dinheiroExtra.forEach((e) => {
+    if (String(e.data || "").slice(0, 7) !== mes) return;
+    const v = Number(e.valor) || 0;
+    entradasMes += v;
+    if (e.recebido === true) entradasPagasMes += v;
+  });
+
   const saldoAtual = entradasPagasMes - saidasPagasMes + (mes === mesAtual ? saldoInicial : 0);
 
   // Dias restantes: mês passado já não tem mais dias pra gastar; mês futuro
@@ -513,6 +517,7 @@ function renderAll() {
   renderHistorico();
   renderDashboard();
   renderContasAPagar();
+  renderDinheiroExtra();
 }
 
 // "Transferencia" é um terceiro tipo de lançamento (troca entre contas) —
@@ -652,69 +657,6 @@ document.getElementById("btn-salvar-novo-lancamento").addEventListener("click", 
   }
 });
 
-/* ══════════════ MODAL: NOVA PESSOA (reutilizado em "Quem comprou") ══════════════ */
-
-function preencherSelectsPessoa() {
-  const opcoes = '<option value="">— Não informado —</option>' +
-    STATE.pessoas.map((p) => `<option value="${esc(p.nome)}">${esc(p.nome)}</option>`).join("");
-  ["mov-responsavel", "compra-responsavel", "edit-mov-responsavel", "edit-compra-responsavel", "qa-mov-responsavel", "qa-compra-responsavel", "rev-responsavel", "lote-pessoa"].forEach((id) => {
-    const sel = document.getElementById(id);
-    const valorAtual = sel.value;
-    sel.innerHTML = opcoes;
-    if (pendingSelecaoPessoa && pendingSelecaoPessoa.selectId === id && STATE.pessoas.some((p) => p.nome === pendingSelecaoPessoa.nome)) {
-      sel.value = pendingSelecaoPessoa.nome;
-      pendingSelecaoPessoa = null;
-    } else if (valorAtual) {
-      sel.value = valorAtual;
-    }
-  });
-}
-
-// Registros antigos podem ter "responsavel" como texto livre que não bate
-// com nenhuma pessoa cadastrada — garante que o valor apareça mesmo assim
-// (marcado como "não cadastrado"), em vez de sumir silenciosamente do select.
-function garantirOpcaoPessoa(selectId, nome) {
-  if (!nome) return;
-  const sel = document.getElementById(selectId);
-  if (![...sel.options].some((o) => o.value === nome)) {
-    sel.insertAdjacentHTML("beforeend", `<option value="${esc(nome)}">${esc(nome)} (não cadastrado)</option>`);
-  }
-  sel.value = nome;
-}
-
-function abrirModalNovaPessoa(selectAlvoId) {
-  selectAlvoNovaPessoa = selectAlvoId || null;
-  document.getElementById("nova-pessoa-nome").value = "";
-  document.getElementById("modal-nova-pessoa").classList.add("active");
-  document.getElementById("nova-pessoa-nome").focus();
-}
-function fecharModalNovaPessoa() {
-  document.getElementById("modal-nova-pessoa").classList.remove("active");
-  selectAlvoNovaPessoa = null;
-}
-document.querySelectorAll("[data-abrir-nova-pessoa]").forEach((btn) => {
-  btn.addEventListener("click", () => abrirModalNovaPessoa(btn.dataset.abrirNovaPessoa));
-});
-document.getElementById("btn-cancelar-nova-pessoa").addEventListener("click", fecharModalNovaPessoa);
-document.getElementById("modal-nova-pessoa").addEventListener("click", (e) => {
-  if (e.target.id === "modal-nova-pessoa") fecharModalNovaPessoa();
-});
-document.getElementById("btn-salvar-nova-pessoa").addEventListener("click", async () => {
-  const nome = document.getElementById("nova-pessoa-nome").value.trim();
-  if (!nome) return mostrarToast("Digite um nome.", true);
-  if (STATE.pessoas.some((p) => p.nome.toLowerCase() === nome.toLowerCase())) {
-    return mostrarToast("Já existe uma pessoa com esse nome.", true);
-  }
-  try {
-    await addDoc(collection(db, "pessoas"), { nome, createdAt: serverTimestamp() });
-    if (selectAlvoNovaPessoa) pendingSelecaoPessoa = { selectId: selectAlvoNovaPessoa, nome };
-    mostrarToast("Pessoa cadastrada!");
-    fecharModalNovaPessoa();
-  } catch (err) {
-    mostrarToast("Não foi possível salvar: " + err.message, true);
-  }
-});
-
 function filtrarPorMes(lista) {
   if (!STATE.filtroMovMesDe && !STATE.filtroMovMesAte) return lista;
   return lista.filter((m) => {
@@ -723,11 +665,6 @@ function filtrarPorMes(lista) {
     if (STATE.filtroMovMesAte && anoMes > STATE.filtroMovMesAte) return false;
     return true;
   });
-}
-
-function filtrarPorPessoa(lista) {
-  if (!STATE.filtroMovPessoa) return lista;
-  return lista.filter((m) => (m.responsavel || "") === STATE.filtroMovPessoa);
 }
 
 function filtrarPorBanco(lista) {
@@ -761,11 +698,11 @@ function filtrarPorTipo(lista) {
 }
 
 // Um texto só, juntando tudo que aparece na linha (lançamento, banco, tipo,
-// categoria, quem comprou, valor, situação, descrição do banco, parcela...)
-// — é contra isso que a busca livre compara.
+// categoria, valor, situação, descrição do banco, parcela...) — é contra
+// isso que a busca livre compara.
 function textoBuscavelMovimentacao(m) {
   return [
-    m.nomeLancamento, rotuloTipo(m.tipo), m.categoria, m.responsavel,
+    m.nomeLancamento, rotuloTipo(m.tipo), m.categoria,
     m.instituicao, m.contaTipo === "cartao" ? "cartão" : "", m.descricaoOrigem, m.descricaoCompra,
     m.pago ? "Pago" : "Pendente", moeda(m.valor), m.parcelaAtual ? `Parcela ${m.parcelaAtual}/${m.parcelaTotal || ""}` : ""
   ].filter(Boolean).join(" ").toLowerCase();
@@ -783,22 +720,8 @@ function ehMovimentacaoDeCartao(m) {
   return m.contaTipo === "cartao" || !!m.cartaoId || CATEGORIAS_FATURA_CARTAO.includes(m.categoria);
 }
 
-// Opções do filtro vêm da união de "pessoas" cadastradas + qualquer nome
-// já usado em movimentações (cobre registros antigos com texto livre) —
-// assim ninguém some do filtro só porque não foi formalmente cadastrado.
-function preencherFiltroPessoa(enriquecidas) {
-  const nomes = new Set();
-  STATE.pessoas.forEach((p) => nomes.add(p.nome));
-  enriquecidas.forEach((m) => { if (m.responsavel) nomes.add(m.responsavel); });
-  const sel = document.getElementById("mov-filtro-pessoa");
-  const valorAtual = sel.value;
-  sel.innerHTML = '<option value="">Todas as pessoas</option>' +
-    [...nomes].sort((a, b) => a.localeCompare(b, "pt-BR")).map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join("");
-  if (valorAtual) sel.value = valorAtual;
-}
-
-// Mesma ideia do filtro de pessoa: união das conexões bancárias cadastradas
-// + qualquer nome de banco já usado em movimentações importadas.
+// União das conexões bancárias cadastradas + qualquer nome de banco já
+// usado em movimentações importadas.
 function preencherFiltroBanco(enriquecidas) {
   const nomes = new Set();
   STATE.conexoesBancarias.forEach((c) => { if (c.instituicao) nomes.add(c.instituicao); });
@@ -813,11 +736,6 @@ function preencherFiltroBanco(enriquecidas) {
 // Todo filtro volta pra página 1. Sem isso, quem estava na página 3 e mudava
 // o mês (ou clicava em "Ver todos os meses") continuava na página 3 de uma
 // lista totalmente diferente — parecia que a paginação tinha travado.
-document.getElementById("mov-filtro-pessoa").addEventListener("change", (e) => {
-  STATE.filtroMovPessoa = e.target.value;
-  STATE.paginaMov = 1;
-  renderMovimentacoes();
-});
 document.getElementById("mov-filtro-banco").addEventListener("change", (e) => {
   STATE.filtroMovBanco = e.target.value;
   STATE.paginaMov = 1;
@@ -906,9 +824,8 @@ function renderMovimentacoes() {
     .filter((m) => ehMovimentacaoDeCartao(m) && m.pago !== true)
     .reduce((s, m) => s + (Number(m.valor) || 0), 0);
 
-  preencherFiltroPessoa(enriquecidas);
   preencherFiltroBanco(enriquecidas);
-  const filtradas = filtrarPorBuscaLivre(filtrarPorTipo(filtrarPorRevisao(filtrarPorTipoConta(filtrarPorBanco(filtrarPorPessoa(filtrarPorMes(enriquecidas)))))));
+  const filtradas = filtrarPorBuscaLivre(filtrarPorTipo(filtrarPorRevisao(filtrarPorTipoConta(filtrarPorBanco(filtrarPorMes(enriquecidas))))));
 
   ultimaListaFiltradaMov = filtradas;
   // Limpa da seleção tudo que saiu do filtro atual, pra não agir em lote
@@ -924,10 +841,10 @@ function renderMovimentacoes() {
 
   const body = document.getElementById("movs-body");
   if (!filtradas.length) {
-    const temFiltro = STATE.filtroMovMesDe || STATE.filtroMovMesAte || STATE.filtroMovPessoa
+    const temFiltro = STATE.filtroMovMesDe || STATE.filtroMovMesAte
       || STATE.filtroMovBanco || STATE.filtroMovTipoConta || STATE.filtroMovRevisado
       || STATE.filtroMovTipo || STATE.buscaLivreMov;
-    body.innerHTML = `<tr><td colspan="9" class="empty">${temFiltro ? "Nenhuma movimentação com esse filtro." : "Nenhuma movimentação registrada ainda."}</td></tr>`;
+    body.innerHTML = `<tr><td colspan="8" class="empty">${temFiltro ? "Nenhuma movimentação com esse filtro." : "Nenhuma movimentação registrada ainda."}</td></tr>`;
   } else {
     body.innerHTML = paginadas.map((m) => {
       const aRevisar = precisaRevisao(m);
@@ -961,7 +878,7 @@ function renderMovimentacoes() {
         `<td>${dataBR(m.data)}</td><td>${esc(m.nomeLancamento)}${aRevisar ? ' <span class="stamp revisar">A REVISAR</span>' : ""}${ehPrevisao ? ' <span class="stamp reconexao">PREVISÃO</span>' : ""}${sublabels}</td>` +
         `<td>${colunaBanco}</td>` +
         `<td><span class="badge-tipo ${m.tipo}">${rotuloTipo(m.tipo)}</span></td>` +
-        `<td>${esc(m.categoria)}</td><td>${esc(m.responsavel || "")}</td><td class="num">${moeda(m.valor)}</td>` +
+        `<td>${esc(m.categoria)}</td><td class="num">${moeda(m.valor)}</td>` +
         `<td><span class="stamp ${m.pago ? "pago" : "pendente"}" data-alternar-pagamento="${m.id}" data-novo-pago="${!m.pago}">${m.pago ? "PAGO" : "PENDENTE"}</span></td></tr>`
       );
     }).join("");
@@ -1015,7 +932,7 @@ function renderMovimentacoes() {
 
   // Contador de pendências de revisão — respeita todos os filtros menos o
   // próprio filtro de revisão, pra sempre mostrar quanto falta conferir.
-  const semFiltroRevisao = filtrarPorBuscaLivre(filtrarPorTipo(filtrarPorTipoConta(filtrarPorBanco(filtrarPorPessoa(filtrarPorMes(enriquecidas))))));
+  const semFiltroRevisao = filtrarPorBuscaLivre(filtrarPorTipo(filtrarPorTipoConta(filtrarPorBanco(filtrarPorMes(enriquecidas)))));
   const qtdARevisar = semFiltroRevisao.filter(precisaRevisao).length;
   const avisoEl = document.getElementById("mov-aviso-revisao");
   if (qtdARevisar) {
@@ -1107,13 +1024,6 @@ document.getElementById("lote-lancamento").addEventListener("change", (e) => {
   if (!confirm(`Aplicar o lançamento "${nome}" a ${selecionadasMov.size} movimentação(ões)?`)) return;
   aplicarEmLote({ lancamentoId, revisado: true }, `classificadas como "${nome}"`);
 });
-document.getElementById("lote-pessoa").addEventListener("change", (e) => {
-  const responsavel = e.target.value;
-  if (!responsavel) return;
-  e.target.value = "";
-  if (!confirm(`Definir "${responsavel}" como quem comprou em ${selecionadasMov.size} movimentação(ões)?`)) return;
-  aplicarEmLote({ responsavel }, `quem comprou: ${responsavel}`);
-});
 
 document.getElementById("btn-lote-excluir").addEventListener("click", async () => {
   const ids = [...selecionadasMov];
@@ -1154,7 +1064,6 @@ function abrirModoRevisao() {
   if (!filaRevisao.length) return mostrarToast("Nada a revisar — está tudo conferido!");
   posicaoRevisao = 0;
   preencherSelectsLancamento();
-  preencherSelectsPessoa();
   document.getElementById("modal-revisao").classList.add("active");
   mostrarItemRevisao();
 }
@@ -1189,13 +1098,11 @@ function mostrarItemRevisao() {
     l.nome ? `Lançamento atual: ${l.nome}` : "Sem lançamento definido",
     l.categoria ? `Categoria: ${l.categoria}` : "",
     m.instituicao ? `Banco: ${m.instituicao}` : "",
-    m.responsavel ? `Quem comprou: ${m.responsavel}` : "",
     m.parcelaAtual ? `Parcela ${m.parcelaAtual}${m.parcelaTotal ? "/" + m.parcelaTotal : ""}` : ""
   ].filter(Boolean);
   document.getElementById("rev-detalhes").innerHTML = detalhes.map((d) => `<span>${esc(d)}</span>`).join("");
 
   definirComboLancamento("rev-lancamento", m.lancamentoId);
-  garantirOpcaoPessoa("rev-responsavel", m.responsavel || "");
   document.getElementById("rev-pago").value = m.pago ? "true" : "false";
   document.getElementById("rev-data-edit").value = m.data || "";
   document.getElementById("rev-valor-edit").value = m.valor;
@@ -1208,7 +1115,6 @@ async function confirmarItemRevisao() {
   if (!m) { posicaoRevisao++; return mostrarItemRevisao(); }
 
   const lancamentoId = document.getElementById("rev-lancamento").value || m.lancamentoId;
-  const responsavel = document.getElementById("rev-responsavel").value.trim();
   const pago = document.getElementById("rev-pago").value === "true";
   const data = document.getElementById("rev-data-edit").value || m.data;
   const valor = Number(document.getElementById("rev-valor-edit").value) || Number(m.valor);
@@ -1217,7 +1123,7 @@ async function confirmarItemRevisao() {
   if (!valor || valor <= 0) return mostrarToast("Valor inválido.", true);
 
   try {
-    await updateDoc(doc(db, "movimentacoes", m.id), { lancamentoId, responsavel, pago, data, valor, revisado: true });
+    await updateDoc(doc(db, "movimentacoes", m.id), { lancamentoId, pago, data, valor, revisado: true });
     // Mesma aprendizagem do modal de edição: se veio do banco e o lançamento
     // mudou, a próxima transação parecida já entra categorizada sozinha.
     if (m.origem === "Open Finance" && m.chaveCategorizador && m.lancamentoId !== lancamentoId) {
@@ -1372,12 +1278,12 @@ function renderContasAPagar() {
 function renderContasLista(bodyId, lista, msgVazio) {
   const body = document.getElementById(bodyId);
   if (!lista.length) {
-    body.innerHTML = `<tr><td colspan="6" class="empty">${msgVazio}</td></tr>`;
+    body.innerHTML = `<tr><td colspan="5" class="empty">${msgVazio}</td></tr>`;
     return;
   }
   body.innerHTML = lista.map((m) => (
     `<tr class="linha-clicavel" data-abrir-mov="${m.id}"><td>${dataBR(m.data)}</td><td>${esc(m.nomeLancamento)}</td>` +
-    `<td>${esc(m.categoria)}</td><td>${esc(m.responsavel || "")}</td><td class="num">${moeda(m.valor)}</td>` +
+    `<td>${esc(m.categoria)}</td><td class="num">${moeda(m.valor)}</td>` +
     `<td><span class="stamp ${m.pago ? "pago" : "pendente"}" data-alternar-pagamento="${m.id}" data-novo-pago="${!m.pago}">${m.pago ? "PAGO" : "PENDENTE"}</span></td></tr>`
   )).join("");
   body.querySelectorAll("[data-abrir-mov]").forEach((tr) => {
@@ -1551,7 +1457,7 @@ function renderParcelasCartao() {
   // pra dar visão completa do que está ocupando o limite de cada cartão.
   const parcelas = STATE.movimentacoes.filter((m) => m.cartaoId || (m.contaTipo === "cartao" && m.conexaoId));
   if (!parcelas.length) {
-    body.innerHTML = '<tr><td colspan="6" class="empty">Nenhum gasto lançado no cartão ainda.</td></tr>';
+    body.innerHTML = '<tr><td colspan="5" class="empty">Nenhum gasto lançado no cartão ainda.</td></tr>';
     return;
   }
   const ordenadas = [...parcelas].sort((a, b) => (a.data < b.data ? 1 : -1));
@@ -1563,7 +1469,7 @@ function renderParcelasCartao() {
       : `${m.instituicao || "Banco"} (Open Finance)`;
     return (
       `<tr class="linha-clicavel" data-abrir-mov="${m.id}"><td>${dataBR(m.data)}</td><td>${esc(descricao)}</td>` +
-      `<td>${esc(cartaoNome)}</td><td>${esc(m.responsavel || "")}</td><td class="num">${moeda(m.valor)}</td>` +
+      `<td>${esc(cartaoNome)}</td><td class="num">${moeda(m.valor)}</td>` +
       `<td><span class="stamp ${m.pago ? "pago" : "pendente"}" data-alternar-pagamento="${m.id}" data-novo-pago="${!m.pago}">${m.pago ? "PAGO" : "PENDENTE"}</span></td></tr>`
     );
   }).join("");
@@ -1598,7 +1504,7 @@ function renderComprasParceladas() {
     const valorTotal = Number(c.valorTotal) || 0;
     const valorParcela = arredondar2(valorTotal / numParcelas);
     return (
-      `<tr class="linha-clicavel" data-abrir-compra="${c.id}"><td>${esc(c.descricao)}</td><td>${esc((buscarCartaoUnificado(c.cartaoId) || {}).nomeExibicao || "(excluído)")}</td><td>${esc(c.responsavel || "")}</td>` +
+      `<tr class="linha-clicavel" data-abrir-compra="${c.id}"><td>${esc(c.descricao)}</td><td>${esc((buscarCartaoUnificado(c.cartaoId) || {}).nomeExibicao || "(excluído)")}</td>` +
       `<td class="num">${moeda(valorTotal)}</td><td>${numParcelas}x</td>` +
       `<td class="num">${moeda(valorParcela)}</td><td>${dataBR(c.dataCompra)}</td></tr>`
     );
@@ -1613,12 +1519,10 @@ function abrirModalEditarCompra(id) {
   if (!c) return mostrarToast("Compra não encontrada.", true);
   preencherSelectsLancamento();
   preencherSelectCartoes();
-  preencherSelectsPessoa();
   document.getElementById("edit-compra-id").value = c.id;
   document.getElementById("edit-compra-cartao").value = c.cartaoId;
   definirComboLancamento("edit-compra-lancamento", c.lancamentoId);
   document.getElementById("edit-compra-descricao").value = c.descricao;
-  garantirOpcaoPessoa("edit-compra-responsavel", c.responsavel || "");
   document.getElementById("edit-compra-valor").value = c.valorTotal;
   document.getElementById("edit-compra-parcelas").value = c.numParcelas;
   document.getElementById("edit-compra-data").value = c.dataCompra;
@@ -1655,7 +1559,6 @@ async function salvarEdicaoCompra(forcarRecalculo) {
   const cartaoId = document.getElementById("edit-compra-cartao").value;
   const lancamentoId = document.getElementById("edit-compra-lancamento").value;
   const descricao = document.getElementById("edit-compra-descricao").value.trim();
-  const responsavel = document.getElementById("edit-compra-responsavel").value.trim();
   const valorTotal = Number(document.getElementById("edit-compra-valor").value);
   const numParcelas = Number(document.getElementById("edit-compra-parcelas").value);
   const dataCompra = document.getElementById("edit-compra-data").value;
@@ -1674,7 +1577,7 @@ async function salvarEdicaoCompra(forcarRecalculo) {
   if (cartao.origemCartao === "openFinance") {
     if (forcarRecalculo) return mostrarToast("Cartão via Open Finance não tem cronograma pra recalcular — quem controla isso é o próprio banco.", true);
     // Cartão/valor/parcelas/data ficam desabilitados na tela pra esse caso,
-    // então só descrição/lançamento/responsável mudam — segue direto pro
+    // então só descrição/lançamento mudam — segue direto pro
     // caminho "não afeta cronograma" mais abaixo.
   }
 
@@ -1712,7 +1615,6 @@ async function salvarEdicaoCompra(forcarRecalculo) {
 
   const alteracoes = [];
   if (atual.descricao !== descricao) alteracoes.push({ campo: "Descrição", antes: atual.descricao, depois: descricao });
-  if ((atual.responsavel || "") !== responsavel) alteracoes.push({ campo: "Responsável", antes: atual.responsavel || "—", depois: responsavel || "—" });
   if (arredondar2(valorTotal) !== valorTotalAtual) alteracoes.push({ campo: "Valor total", antes: moeda(valorTotalAtual), depois: moeda(valorTotal) });
   if (numParcelas !== numParcelasAtual) alteracoes.push({ campo: "Nº de parcelas", antes: String(numParcelasAtual), depois: String(numParcelas) });
   if (atual.dataCompra !== dataCompra) alteracoes.push({ campo: "Data da compra", antes: dataBR(atual.dataCompra), depois: dataBR(dataCompra) });
@@ -1752,7 +1654,7 @@ async function salvarEdicaoCompra(forcarRecalculo) {
 
   try {
     const batch = writeBatch(db);
-    batch.update(doc(db, "comprasParceladas", id), { cartaoId, lancamentoId, descricao, responsavel, valorTotal, numParcelas, dataCompra });
+    batch.update(doc(db, "comprasParceladas", id), { cartaoId, lancamentoId, descricao, valorTotal, numParcelas, dataCompra });
 
     if (afetaCronograma) {
       // Apaga só as parcelas ainda não pagas e recria a partir da posição
@@ -1774,24 +1676,15 @@ async function salvarEdicaoCompra(forcarRecalculo) {
           : valorPorParcela;
         const movRef = doc(collection(db, "movimentacoes"));
         batch.set(movRef, {
-          lancamentoId, data: vencimento, valor: valorDaParcela, pago: false, responsavel,
+          lancamentoId, data: vencimento, valor: valorDaParcela, pago: false,
           origem: `Cartao ${i + 1}/${numParcelas}`, cartaoId, compraParceladaId: id, revisado: true, createdAt: serverTimestamp()
         });
       }
       // Parcelas já pagas continuam com data/valor intactos (viraram
-      // histórico) — só atualiza responsável e o rótulo "i/numParcelas",
-      // já que o total de parcelas pode ter mudado.
+      // histórico) — só atualiza o rótulo "i/numParcelas", já que o total
+      // de parcelas pode ter mudado.
       pagas.forEach((m, idx) => {
-        const dadosMov = { origem: `Cartao ${idx + 1}/${numParcelas}` };
-        if ((m.responsavel || "") !== responsavel) dadosMov.responsavel = responsavel;
-        batch.update(doc(db, "movimentacoes", m.id), dadosMov);
-      });
-    } else {
-      // Nada que afete o cronograma mudou — só propaga responsável.
-      parcelas.forEach((m) => {
-        if ((m.responsavel || "") !== responsavel) {
-          batch.update(doc(db, "movimentacoes", m.id), { responsavel });
-        }
+        batch.update(doc(db, "movimentacoes", m.id), { origem: `Cartao ${idx + 1}/${numParcelas}` });
       });
     }
 
@@ -1978,7 +1871,8 @@ function calcularIndicadoresGeraisDash() {
     const ehTransferencia = l.tipo === "Transferencia";
 
     if (m.pago === true) {
-      if (!ehCartao) saldoAtual += ehSaida ? -valor : valor;
+      // Transferência entre contas é neutra: não soma nem subtrai do saldo.
+      if (!ehCartao && !ehTransferencia) saldoAtual += ehSaida ? -valor : valor;
       if (!ehTransferencia && ehSaida && dataAnoMes === anoMes) saidasPagasMes += valor;
     } else {
       if (!ehTransferencia) {
@@ -1987,6 +1881,11 @@ function calcularIndicadoresGeraisDash() {
       }
       if (m.cartaoId) parcelasCartaoFuturas += valor;
     }
+  });
+
+  STATE.dinheiroExtra.forEach((e) => {
+    const v = Number(e.valor) || 0;
+    if (e.recebido === true) saldoAtual += v; else entradasNaoPagas += v;
   });
 
   const saldoPrevisto = saldoAtual - saidasNaoPagas + entradasNaoPagas;
@@ -2493,12 +2392,12 @@ document.getElementById("btn-salvar-edicao-lanc").addEventListener("click", asyn
 
 // Lógica central de criar movimentação — usada tanto pelo formulário da
 // aba Movimentações quanto pelo modal de Ação Rápida.
-async function criarMovimentacao({ lancamentoId, data, valor, pago, responsavel }) {
+async function criarMovimentacao({ lancamentoId, data, valor, pago }) {
   if (!lancamentoId) { mostrarToast("Cadastre um lançamento primeiro.", true); return false; }
   if (!data || !valor) { mostrarToast("Preencha data e valor.", true); return false; }
   try {
     await addDoc(collection(db, "movimentacoes"), {
-      lancamentoId, data, valor, pago, responsavel, origem: "Manual", revisado: true, cartaoId: null, compraParceladaId: null, createdAt: serverTimestamp()
+      lancamentoId, data, valor, pago, origem: "Manual", revisado: true, cartaoId: null, compraParceladaId: null, createdAt: serverTimestamp()
     });
     mostrarToast("Movimentação adicionada!");
     return true;
@@ -2513,12 +2412,10 @@ document.getElementById("btn-add-movimentacao").addEventListener("click", async 
     lancamentoId: document.getElementById("mov-lancamento").value,
     data: document.getElementById("mov-data").value,
     valor: Number(document.getElementById("mov-valor").value),
-    pago: document.getElementById("mov-pago").value === "true",
-    responsavel: document.getElementById("mov-responsavel").value.trim()
+    pago: document.getElementById("mov-pago").value === "true"
   });
   if (ok) {
     document.getElementById("mov-valor").value = "";
-    document.getElementById("mov-responsavel").value = "";
   }
 });
 
@@ -2534,13 +2431,11 @@ function abrirModalMovimentacao(id) {
   const mov = STATE.movimentacoes.find((m) => m.id === id);
   if (!mov) return mostrarToast("Movimentação não encontrada.", true);
   preencherSelectsLancamento();
-  preencherSelectsPessoa();
   document.getElementById("edit-mov-id").value = mov.id;
   definirComboLancamento("edit-mov-lancamento", mov.lancamentoId);
   document.getElementById("edit-mov-data").value = mov.data;
   document.getElementById("edit-mov-valor").value = mov.valor;
   document.getElementById("edit-mov-pago").value = mov.pago ? "true" : "false";
-  garantirOpcaoPessoa("edit-mov-responsavel", mov.responsavel || "");
 
   const infoEl = document.getElementById("edit-mov-info");
   if (mov.origem === "Open Finance") {
@@ -2577,7 +2472,6 @@ document.getElementById("btn-salvar-edicao-mov").addEventListener("click", async
   const data = document.getElementById("edit-mov-data").value;
   const valor = Number(document.getElementById("edit-mov-valor").value);
   const pago = document.getElementById("edit-mov-pago").value === "true";
-  const responsavel = document.getElementById("edit-mov-responsavel").value.trim();
 
   if (!lancamentoId) return mostrarToast("Selecione um lançamento.", true);
   if (!data || !valor) return mostrarToast("Preencha data e valor.", true);
@@ -2596,7 +2490,6 @@ document.getElementById("btn-salvar-edicao-mov").addEventListener("click", async
   if (atual.data !== data) alteracoes.push({ campo: "Data", antes: dataBR(atual.data), depois: dataBR(data) });
   if (Number(atual.valor) !== valor) alteracoes.push({ campo: "Valor", antes: moeda(atual.valor), depois: moeda(valor) });
   if (situacaoAntes !== situacaoDepois) alteracoes.push({ campo: "Situação", antes: situacaoAntes, depois: situacaoDepois });
-  if ((atual.responsavel || "") !== responsavel) alteracoes.push({ campo: "Responsável", antes: atual.responsavel || "—", depois: responsavel || "—" });
 
   if (!alteracoes.length) {
     mostrarToast("Nenhuma alteração encontrada — os dados já eram esses.");
@@ -2604,7 +2497,7 @@ document.getElementById("btn-salvar-edicao-mov").addEventListener("click", async
     return;
   }
 
-  const dadosAtualizar = { lancamentoId, data, valor, pago, responsavel };
+  const dadosAtualizar = { lancamentoId, data, valor, pago };
   // Abrir o modal e salvar já conta como "revisado" pra transações vindas
   // do Open Finance — é o gesto de "olhei e disse do que se trata".
   if (atual.origem === "Open Finance" && atual.revisado !== true) {
@@ -2680,7 +2573,7 @@ document.getElementById("btn-add-cartao").addEventListener("click", async () => 
 // mesmo tempo neste sistema pessoal — a checagem de limite é informativa,
 // não uma trava contra corrida. Usada tanto pelo formulário da aba Cartão
 // de Crédito quanto pelo modal de Ação Rápida.
-async function criarCompraParcelada({ cartaoId, lancamentoId, descricao, responsavel, valorTotal, numParcelas, dataCompra }) {
+async function criarCompraParcelada({ cartaoId, lancamentoId, descricao, valorTotal, numParcelas, dataCompra }) {
   if (!cartaoId) { mostrarToast("Cadastre um cartão primeiro.", true); return false; }
   if (!lancamentoId) { mostrarToast("Cadastre um lançamento primeiro.", true); return false; }
   if (!descricao) { mostrarToast("Descreva a compra.", true); return false; }
@@ -2699,7 +2592,7 @@ async function criarCompraParcelada({ cartaoId, lancamentoId, descricao, respons
   try {
     const batch = writeBatch(db);
     const compraRef = doc(collection(db, "comprasParceladas"));
-    batch.set(compraRef, { cartaoId, lancamentoId, descricao, responsavel, valorTotal, numParcelas, dataCompra, dataRegistro: serverTimestamp() });
+    batch.set(compraRef, { cartaoId, lancamentoId, descricao, valorTotal, numParcelas, dataCompra, dataRegistro: serverTimestamp() });
 
     const valorParcela = arredondar2(valorTotal / numParcelas);
     const ciclo = calcularCicloInicial(dataCompra, Number(cartao.diaFechamento));
@@ -2712,7 +2605,7 @@ async function criarCompraParcelada({ cartaoId, lancamentoId, descricao, respons
         : valorParcela;
       const movRef = doc(collection(db, "movimentacoes"));
       batch.set(movRef, {
-        lancamentoId, data: vencimento, valor: valorDaParcela, pago: false, responsavel,
+        lancamentoId, data: vencimento, valor: valorDaParcela, pago: false,
         origem: `Cartao ${i + 1}/${numParcelas}`, cartaoId, compraParceladaId: compraRef.id, revisado: true, createdAt: serverTimestamp()
       });
     }
@@ -2731,14 +2624,12 @@ document.getElementById("btn-add-compra").addEventListener("click", async () => 
     cartaoId: document.getElementById("compra-cartao").value,
     lancamentoId: document.getElementById("compra-lancamento").value,
     descricao: document.getElementById("compra-descricao").value.trim(),
-    responsavel: document.getElementById("compra-responsavel").value.trim(),
     valorTotal: Number(document.getElementById("compra-valor").value),
     numParcelas: Number(document.getElementById("compra-parcelas").value),
     dataCompra: document.getElementById("compra-data").value
   });
   if (ok) {
     document.getElementById("compra-descricao").value = "";
-    document.getElementById("compra-responsavel").value = "";
     document.getElementById("compra-valor").value = "";
     document.getElementById("compra-parcelas").value = "1";
   }
@@ -2832,7 +2723,6 @@ document.querySelectorAll("#qa-tabs .qa-tab").forEach((btn) => {
 
 function abrirModalAcaoRapida() {
   preencherSelectsLancamento();
-  preencherSelectsPessoa();
   preencherSelectCartoes();
 
   document.querySelectorAll("#qa-tabs .qa-tab").forEach((b, i) => b.classList.toggle("active", i === 0));
@@ -2841,11 +2731,9 @@ function abrirModalAcaoRapida() {
   document.getElementById("qa-mov-data").valueAsDate = new Date();
   document.getElementById("qa-mov-valor").value = "";
   document.getElementById("qa-mov-pago").value = "false";
-  document.getElementById("qa-mov-responsavel").value = "";
 
   document.getElementById("qa-compra-data").valueAsDate = new Date();
   document.getElementById("qa-compra-descricao").value = "";
-  document.getElementById("qa-compra-responsavel").value = "";
   document.getElementById("qa-compra-valor").value = "";
   document.getElementById("qa-compra-parcelas").value = "1";
 
@@ -2873,15 +2761,13 @@ document.getElementById("btn-salvar-acao-rapida").addEventListener("click", asyn
       lancamentoId: document.getElementById("qa-mov-lancamento").value,
       data: document.getElementById("qa-mov-data").value,
       valor: Number(document.getElementById("qa-mov-valor").value),
-      pago: document.getElementById("qa-mov-pago").value === "true",
-      responsavel: document.getElementById("qa-mov-responsavel").value
+      pago: document.getElementById("qa-mov-pago").value === "true"
     });
   } else if (tipoAtivo === "compra") {
     ok = await criarCompraParcelada({
       cartaoId: document.getElementById("qa-compra-cartao").value,
       lancamentoId: document.getElementById("qa-compra-lancamento").value,
       descricao: document.getElementById("qa-compra-descricao").value.trim(),
-      responsavel: document.getElementById("qa-compra-responsavel").value,
       valorTotal: Number(document.getElementById("qa-compra-valor").value),
       numParcelas: Number(document.getElementById("qa-compra-parcelas").value),
       dataCompra: document.getElementById("qa-compra-data").value
@@ -3681,7 +3567,7 @@ function gerarPrevisoesFuturas(batch, t, meta, grupoParcelamento, lancamentoId, 
     const movRef = doc(db, "movimentacoes", idPrevisao);
     batch.set(movRef, {
       lancamentoId, data: formatarDataISO(dataFutura), valor: valorParcela, pago: false,
-      responsavel: "", origem: "Open Finance", cartaoId: null, compraParceladaId: null,
+      origem: "Open Finance", cartaoId: null, compraParceladaId: null,
       pluggyTransactionId: null, conexaoId, instituicao: conexao.instituicao || "Banco", contaTipo,
       revisado: true, previsao: true, descricaoOrigem: `${base} ${n}/${meta.totalInstallments}`,
       chaveCategorizador: null, grupoParcelamento, parcelaAtual: n, parcelaTotal: meta.totalInstallments,
@@ -3970,6 +3856,16 @@ async function sincronizarConexao(conexaoId) {
       }
     });
 
+    // Reconhecimento de padrões: cria (uma vez) os lançamentos das categorias
+    // sugeridas ANTES do lote, pra já ter o ID na hora de gravar.
+    const mapaSugestoes = new Map();
+    for (const t of novas) {
+      const ch = chaveCategorizador(t);
+      if (ch && mapaRegras[ch]) continue; // regra aprendida tem prioridade
+      const sug = sugerirClassificacao(textoDaTransacao(t), Number(t.amount) < 0 ? "Saida" : "Entrada", t.category);
+      if (sug) mapaSugestoes.set(t.id, await garantirLancamentoSugerido(sug));
+    }
+
     let qtdAutoCategorizadas = 0;
     let qtdConciliadas = 0;
     let qtdPrevisoesGeradas = 0;
@@ -3978,7 +3874,9 @@ async function sincronizarConexao(conexaoId) {
       const valor = Number(t.amount) || 0;
       const tipo = valor < 0 ? "Saida" : "Entrada";
       const chave = chaveCategorizador(t);
-      const lancamentoIdRegra = chave ? mapaRegras[chave] : null;
+      // Prioridade: regra que você ensinou > padrão reconhecido (Uber, iFood,
+      // transferência entre contas suas...) > genérico "a revisar".
+      const lancamentoIdRegra = (chave ? mapaRegras[chave] : null) || mapaSugestoes.get(t.id) || null;
 
       const meta = t.creditCardMetadata;
       const ehParcelaDeCartao = !!(meta && meta.installmentNumber != null && meta.totalInstallments);
@@ -4063,7 +3961,7 @@ async function sincronizarConexao(conexaoId) {
         const movRef = doc(db, "movimentacoes", "of_" + t.id);
         batch.set(movRef, {
           lancamentoId, data: dataParaMovimentacao, valor: Math.abs(arredondar2(valor)), pago: jaPago,
-          responsavel: "", cartaoId: null, compraParceladaId: null, ...dadosOpenFinance, createdAt: serverTimestamp()
+          cartaoId: null, compraParceladaId: null, ...dadosOpenFinance, createdAt: serverTimestamp()
         });
       }
 
@@ -4164,6 +4062,7 @@ const COLECOES_RESET = [
   { checkbox: "reset-recorrentes", colecao: "recorrentes", rotulo: "Custos recorrentes", stateKey: "recorrentes" },
   { checkbox: "reset-listaCompras", colecao: "listaCompras", rotulo: "Lista de compras", stateKey: "listaCompras" },
   { checkbox: "reset-planos", colecao: "planos", rotulo: "Planos", stateKey: "planos" },
+  { checkbox: "reset-dinheiroExtra", colecao: "dinheiroExtra", rotulo: "Dinheiro extra", stateKey: "dinheiroExtra" },
   { checkbox: "reset-cartoes", colecao: "cartoes", rotulo: "Cartões", stateKey: "cartoes" },
   { checkbox: "reset-lancamentos", colecao: "lancamentos", rotulo: "Lançamentos", stateKey: "lancamentos" }
 ];
@@ -4309,7 +4208,7 @@ function descricaoArquivo(item) {
 
 const ROTULO_COLECAO = {
   movimentacoes: "Movimentação", comprasParceladas: "Compra parcelada", recorrentes: "Recorrente",
-  listaCompras: "Lista de compras", planos: "Plano", cartoes: "Cartão", lancamentos: "Lançamento"
+  listaCompras: "Lista de compras", planos: "Plano", dinheiroExtra: "Dinheiro extra", cartoes: "Cartão", lancamentos: "Lançamento"
 };
 
 function renderArquivo() {
@@ -4336,6 +4235,89 @@ function renderArquivo() {
     : "");
 }
 
+/* ══════════════ RESETAR TUDO (inclui o Histórico) ══════════════ */
+
+// Mesma lógica de arquivar-antes-de-apagar do "Zerar controle financeiro",
+// mas sem checkboxes: apaga TODAS as coleções de uma vez, sem corte por
+// data, e inclui o Histórico — que o botão acima nunca apaga. É o botão
+// "começar do zero de verdade".
+const COLECOES_RESET_TUDO = [
+  { colecao: "movimentacoes", stateKey: "movimentacoes", rotulo: "Movimentações" },
+  { colecao: "comprasParceladas", stateKey: "comprasParceladas", rotulo: "Compras parceladas" },
+  { colecao: "recorrentes", stateKey: "recorrentes", rotulo: "Custos recorrentes" },
+  { colecao: "listaCompras", stateKey: "listaCompras", rotulo: "Lista de compras" },
+  { colecao: "planos", stateKey: "planos", rotulo: "Planos" },
+  { colecao: "dinheiroExtra", stateKey: "dinheiroExtra", rotulo: "Dinheiro extra" },
+  { colecao: "cartoes", stateKey: "cartoes", rotulo: "Cartões" },
+  { colecao: "lancamentos", stateKey: "lancamentos", rotulo: "Lançamentos" },
+  { colecao: "historico", stateKey: "historico", rotulo: "Histórico de Alterações" }
+];
+
+document.getElementById("btn-resetar-tudo").addEventListener("click", async () => {
+  const confirmacao = document.getElementById("resettudo-confirmacao").value.trim().toUpperCase();
+  if (confirmacao !== "RESETAR TUDO") {
+    return mostrarToast("Digite RESETAR TUDO no campo de confirmação para prosseguir.", true);
+  }
+  if (!confirm('Isso vai apagar TUDO — todas as movimentações, compras, recorrentes, lista de compras, planos, cartões, lançamentos, configurações e o Histórico de Alterações — pra você começar do zero. Os dados continuam consultáveis em "Ver dados arquivados". Confirmar?')) return;
+
+  const btn = document.getElementById("btn-resetar-tudo");
+  btn.disabled = true;
+  const statusEl = document.getElementById("resettudo-status");
+  statusEl.textContent = "Arquivando…";
+
+  const resetId = "reset_total_" + Date.now();
+  const quando = new Date().toISOString();
+  const totalGeral = COLECOES_RESET_TUDO.reduce((s, c) => s + (STATE[c.stateKey] || []).length, 0);
+
+  try {
+    let feitos = 0;
+    for (const c of COLECOES_RESET_TUDO) {
+      const itens = STATE[c.stateKey] || [];
+      for (let i = 0; i < itens.length; i += 200) {
+        const fatia = itens.slice(i, i + 200);
+        const batch = writeBatch(db);
+        fatia.forEach((item) => {
+          const { id, ...dados } = item;
+          batch.set(doc(collection(db, "arquivo")), {
+            resetId, arquivadoEm: quando, colecaoOrigem: c.colecao,
+            idOriginal: id, dados: JSON.parse(JSON.stringify(dados))
+          });
+          batch.delete(doc(db, c.colecao, id));
+        });
+        await batch.commit();
+        feitos += fatia.length;
+        statusEl.textContent = `Arquivando… ${feitos} de ${totalGeral}`;
+      }
+    }
+
+    await setDoc(doc(db, "config", "geral"), { rendaMensal: 0, saldoInicial: 0 }, { merge: true });
+
+    await setDoc(doc(db, "resets", resetId), {
+      quando, total: totalGeral, ateData: null, zerouConfig: true, tipo: "total",
+      resumo: "reset total — tudo, incluindo o Histórico",
+      colecoes: COLECOES_RESET_TUDO.map((c) => c.colecao)
+    });
+
+    // Primeiro (e único) registro da nova base — marca o dia em que
+    // recomeçou. Vem depois de apagar o histórico antigo de propósito.
+    await addDoc(collection(db, "historico"), {
+      nomeLancamento: "Sistema", campo: "Reset total",
+      valorAnterior: `${totalGeral} registro(s) de todas as coleções`,
+      valorNovo: `arquivado em ${resetId} — nova base a partir de agora`,
+      tipoAlteracao: "Reset total", dataHora: serverTimestamp()
+    });
+
+    document.getElementById("resettudo-confirmacao").value = "";
+    statusEl.textContent = `Pronto — sistema resetado por completo em ${new Date().toLocaleString("pt-BR")}. ${totalGeral} registro(s) arquivado(s).`;
+    mostrarToast("Sistema resetado! Base limpa a partir de agora.");
+  } catch (err) {
+    statusEl.textContent = "";
+    mostrarToast("Não foi possível resetar: " + err.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 document.getElementById("btn-ver-arquivo").addEventListener("click", abrirModalArquivo);
 document.getElementById("arquivo-filtro-reset").addEventListener("change", renderArquivo);
 document.getElementById("btn-fechar-arquivo").addEventListener("click", () => {
@@ -4356,7 +4338,7 @@ document.getElementById("btn-baixar-arquivo").addEventListener("click", async ()
   }
   if (!arquivoCarregado.length) return mostrarToast("Não há nada arquivado ainda.");
 
-  const linhas = [["Arquivado em", "Limpeza", "Tipo", "Data", "Descrição", "Valor", "Situação", "Quem comprou", "Banco"]];
+  const linhas = [["Arquivado em", "Limpeza", "Tipo", "Data", "Descrição", "Valor", "Situação", "Banco"]];
   arquivoCarregado.forEach((a) => {
     const d = a.dados || {};
     linhas.push([
@@ -4365,7 +4347,7 @@ document.getElementById("btn-baixar-arquivo").addEventListener("click", async ()
       d.data || "", descricaoArquivo(a),
       d.valor != null ? d.valor : (d.valorTotal != null ? d.valorTotal : ""),
       typeof d.pago === "boolean" ? (d.pago ? "Pago" : "Pendente") : "",
-      d.responsavel || "", d.instituicao || ""
+      d.instituicao || ""
     ]);
   });
   // Ponto e vírgula + BOM: é o que o Excel em português abre sem bagunçar.
@@ -4377,6 +4359,268 @@ document.getElementById("btn-baixar-arquivo").addEventListener("click", async ()
   link.click();
   URL.revokeObjectURL(url);
 });
+
+/* ══════════════ RECONHECIMENTO AUTOMÁTICO DE CATEGORIA ══════════════ */
+
+// Regras em ordem: a primeira que casar vence (por isso "Mercado Livre"
+// vem antes de "Mercado"). Casa por palavra inteira, sem acento/maiúscula.
+// Ordem importa: "UBER EATS" (Alimentação) e "AMAZON PRIME" (Assinaturas) precisam vir
+// antes de "UBER" (Transporte) e "AMAZON" (Compras).
+const REGRAS_CATEGORIA = [
+  { tipo: "Saida", nome: "Assinaturas", categoria: "Assinaturas", padroes: ["NETFLIX", "SPOTIFY", "AMAZON PRIME", "PRIME VIDEO", "DISNEY", "HBO MAX", "HBO", "YOUTUBE", "APPLE COM BILL", "GOOGLE ONE", "DEEZER", "GLOBOPLAY", "PARAMOUNT", "CRUNCHYROLL"] },
+  { tipo: "Saida", nome: "Compras online", categoria: "Compras", padroes: ["MERCADO LIVRE", "MERCADOLIVRE", "AMAZON", "SHOPEE", "MAGALU", "MAGAZINE LUIZA", "SHEIN", "ALIEXPRESS", "AMERICANAS", "KABUM", "CASAS BAHIA"] },
+  { tipo: "Saida", nome: "Alimentação", categoria: "Alimentação", padroes: ["IFOOD", "I FOOD", "RAPPI", "UBER EATS", "UBEREATS", "MCDONALDS", "MCDONALD", "BURGER KING", "SUBWAY", "OUTBACK", "RESTAURANTE", "LANCHONETE", "PADARIA", "PIZZARIA", "PIZZA", "ACAI", "SORVETERIA", "CAFETERIA", "SUPERMERCADO", "MERCADO", "MERCADINHO", "ATACADAO", "ASSAI", "CARREFOUR", "PAO DE ACUCAR", "HAMBURGUERIA", "HORTIFRUTI", "ACOUGUE"] },
+  { tipo: "Saida", nome: "Transporte", categoria: "Transporte", padroes: ["UBER", "UBER TRIP", "99 POP", "99POP", "99 TAXI", "CABIFY", "INDRIVE", "IN DRIVE", "POSTO", "SHELL", "IPIRANGA", "PETROBRAS", "ESTACIONAMENTO", "PEDAGIO", "SEM PARAR", "CONECTCAR", "VELOE", "BILHETE UNICO", "CPTM", "TAXI"] },
+  { tipo: "Saida", nome: "Saúde", categoria: "Saúde", padroes: ["FARMACIA", "DROGARIA", "DROGASIL", "DROGA RAIA", "PAGUE MENOS", "HOSPITAL", "CLINICA", "LABORATORIO", "ODONTO", "DENTISTA", "UNIMED"] },
+  { tipo: "Saida", nome: "Contas da casa", categoria: "Moradia", padroes: ["ENEL", "LIGHT", "CEMIG", "SABESP", "COPASA", "CLARO", "VIVO", "TIM", "OI FIBRA", "NET CLARO", "ALUGUEL", "CONDOMINIO", "ENERGIA", "AGUA", "INTERNET"] },
+  { tipo: "Saida", nome: "Educação", categoria: "Educação", padroes: ["UDEMY", "ALURA", "ESCOLA", "FACULDADE", "CURSO", "UNIVERSIDADE"] },
+  { tipo: "Entrada", nome: "Salário", categoria: "Salário", padroes: ["SALARIO", "FOLHA DE PAGAMENTO", "PAGAMENTO DE SALARIO"] },
+  { tipo: "Entrada", nome: "Reembolso", categoria: "Reembolso", padroes: ["REEMBOLSO", "ESTORNO", "CASHBACK"] }
+];
+
+// Categorias que o próprio banco (Pluggy) manda, usadas só quando nenhum
+// padrão acima casou. Comparação por trecho, em minúsculas.
+const DICAS_CATEGORIA_BANCO = [
+  { trechos: ["ride", "taxi", "transport", "fuel", "parking", "toll"], regra: "Transporte" },
+  { trechos: ["restaurant", "eating", "food", "grocer", "supermarket", "delivery"], regra: "Alimentação" },
+  { trechos: ["pharmac", "health", "medical"], regra: "Saúde" },
+  { trechos: ["subscription", "streaming"], regra: "Assinaturas" },
+  { trechos: ["shopping", "online purchase"], regra: "Compras online" }
+];
+
+function normalizarTexto(v) {
+  return String(v || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/[^A-Z0-9]+/g, " ").trim();
+}
+
+// Seus nomes como aparecem nos Pix. Padrão: o nome que você informou.
+function nomesProprios() {
+  const cfg = STATE.config && STATE.config.nomesProprios;
+  if (Array.isArray(cfg)) return cfg;
+  if (typeof cfg === "string" && cfg.trim()) return cfg.split(",").map((x) => x.trim()).filter(Boolean);
+  return ["LEONARDO DA SILVA LINS"];
+}
+
+function textoDaTransacao(t) {
+  const pd = t.paymentData || {};
+  const nomes = [t.description, t.descriptionRaw, t.merchant && (t.merchant.name || t.merchant.businessName),
+    pd.receiver && pd.receiver.name, pd.payer && pd.payer.name];
+  return nomes.filter(Boolean).join(" ");
+}
+
+// Devolve { chave, nome, categoria, tipo } ou null (→ vai pra revisão).
+// "tipo" aqui é o tipo do LANÇAMENTO a usar: Entrada, Saida ou Transferencia.
+function sugerirClassificacao(texto, tipoMov, categoriaBanco) {
+  const t = " " + normalizarTexto(texto) + " ";
+  if (t.trim() === "") return null;
+
+  // 1) Mandou de uma conta sua pra outra conta sua: não é ganho nem gasto.
+  const meus = nomesProprios().map(normalizarTexto).filter(Boolean);
+  if (meus.some((n) => t.includes(" " + n + " ")) || /same person/i.test(String(categoriaBanco || ""))) {
+    return { chave: "transferencia-propria", nome: "Transferência entre minhas contas", categoria: "Transferência", tipo: "Transferencia" };
+  }
+
+  // 2) Padrões conhecidos.
+  const regra = REGRAS_CATEGORIA.find((r) => r.tipo === tipoMov && r.padroes.some((p) => t.includes(" " + normalizarTexto(p) + " ")));
+  if (regra) return { chave: regra.nome + "|" + regra.tipo, nome: regra.nome, categoria: regra.categoria, tipo: regra.tipo };
+
+  // 3) Dica da categoria que o banco mandou (só pra saídas).
+  if (tipoMov === "Saida" && categoriaBanco) {
+    const cat = String(categoriaBanco).toLowerCase();
+    const dica = DICAS_CATEGORIA_BANCO.find((d) => d.trechos.some((x) => cat.includes(x)));
+    const r = dica && REGRAS_CATEGORIA.find((x) => x.nome === dica.regra && x.tipo === "Saida");
+    if (r) return { chave: r.nome + "|" + r.tipo, nome: r.nome, categoria: r.categoria, tipo: r.tipo };
+  }
+  return null; // não reconheceu → fica "A REVISAR"
+}
+
+// Reaproveita um lançamento existente (mesmo nome+tipo, senão mesma
+// categoria+tipo) ou cria um novo — assim a rosca agrupa tudo junto.
+const lancamentosSugeridosCriados = new Map();
+async function garantirLancamentoSugerido(sug) {
+  const achado = STATE.lancamentos.find((l) => l.nome === sug.nome && l.tipo === sug.tipo)
+    || STATE.lancamentos.find((l) => l.categoria === sug.categoria && l.tipo === sug.tipo);
+  if (achado) return achado.id;
+  const cacheKey = sug.nome + "|" + sug.tipo;
+  if (lancamentosSugeridosCriados.has(cacheKey)) return lancamentosSugeridosCriados.get(cacheKey);
+  const ref = await addDoc(collection(db, "lancamentos"), { nome: sug.nome, tipo: sug.tipo, categoria: sug.categoria, createdAt: serverTimestamp() });
+  lancamentosSugeridosCriados.set(cacheKey, ref.id);
+  return ref.id;
+}
+
+document.getElementById("btn-salvar-nomes").addEventListener("click", async () => {
+  const lista = document.getElementById("cfg-nomes-proprios").value.split(",").map((x) => x.trim()).filter(Boolean);
+  try {
+    await setDoc(doc(db, "config", "geral"), { nomesProprios: lista }, { merge: true });
+    mostrarToast("Nomes salvos!");
+  } catch (err) { mostrarToast("Não foi possível salvar: " + err.message, true); }
+});
+
+// Reaplica o reconhecimento nas movimentações do banco que ainda estão "a
+// revisar" e caíram no lançamento genérico.
+document.getElementById("btn-reclassificar").addEventListener("click", async () => {
+  const status = document.getElementById("reclassificar-status");
+  const mapa = mapaLancamentos();
+  const alvo = STATE.movimentacoes.filter((m) => m.origem === "Open Finance" && m.previsao !== true && m.revisado !== true
+    && (mapa[m.lancamentoId] || {}).nome === "Importado do banco");
+  if (!alvo.length) { status.textContent = "Nada a reclassificar."; return; }
+  status.textContent = "Reclassificando…";
+  try {
+    const decisoes = [];
+    for (const m of alvo) {
+      const tipoMov = (mapa[m.lancamentoId] || {}).tipo === "Entrada" ? "Entrada" : "Saida";
+      const sug = sugerirClassificacao(m.descricaoOrigem, tipoMov, null);
+      if (sug) decisoes.push({ id: m.id, lancamentoId: await garantirLancamentoSugerido(sug) });
+    }
+    for (let i = 0; i < decisoes.length; i += 400) {
+      const batch = writeBatch(db);
+      decisoes.slice(i, i + 400).forEach((d) => batch.update(doc(db, "movimentacoes", d.id), { lancamentoId: d.lancamentoId, revisado: true }));
+      await batch.commit();
+    }
+    status.textContent = `${decisoes.length} reconhecida(s); ${alvo.length - decisoes.length} continuam para você revisar.`;
+  } catch (err) { status.textContent = ""; mostrarToast("Não foi possível reclassificar: " + err.message, true); }
+});
+
+/* ══════════════ DINHEIRO EXTRA ══════════════ */
+
+function renderDinheiroExtra() {
+  const hoje = formatarDataISO(new Date());
+  const todos = STATE.dinheiroExtra;
+  const soma = (f) => todos.filter(f).reduce((a, e) => a + (Number(e.valor) || 0), 0);
+  const aReceber = soma((e) => e.recebido !== true);
+  const recebido = soma((e) => e.recebido === true);
+  const atrasado = soma((e) => e.recebido !== true && String(e.data || "") < hoje);
+  document.getElementById("extra-kpi-grid").innerHTML =
+    kpiCard("A receber", moeda(aReceber), true) + kpiCard("Já entrou", moeda(recebido), true) +
+    kpiCard("Atrasado (data passou)", moeda(atrasado), atrasado === 0);
+
+  const filtro = document.getElementById("extra-filtro").value;
+  const lista = todos
+    .filter((e) => !filtro || (filtro === "recebido" ? e.recebido === true : e.recebido !== true))
+    .sort((a, b) => String(a.data || "").localeCompare(String(b.data || "")));
+  const body = document.getElementById("extra-body");
+  if (!lista.length) { body.innerHTML = '<tr><td colspan="5" class="empty">Nenhum dinheiro extra cadastrado.</td></tr>'; return; }
+  body.innerHTML = lista.map((e) => {
+    const atrasada = e.recebido !== true && String(e.data || "") < hoje;
+    const stamp = e.recebido === true ? '<span class="stamp pago" data-alternar-extra="' + e.id + '">JÁ ENTROU</span>'
+      : atrasada ? '<span class="stamp pendente" data-alternar-extra="' + e.id + '">ATRASADO</span>'
+      : '<span class="stamp andamento" data-alternar-extra="' + e.id + '">A RECEBER</span>';
+    return `<tr class="${atrasada ? "linha-atrasada" : ""}"><td>${dataBR(e.data)}</td><td>${esc(e.descricao)}</td>` +
+      `<td class="num">${moeda(e.valor)}</td><td>${stamp}</td>` +
+      `<td><button class="btn btn-small" data-editar-extra="${e.id}">Editar</button></td></tr>`;
+  }).join("");
+}
+
+document.getElementById("extra-filtro").addEventListener("change", renderDinheiroExtra);
+document.getElementById("extra-body").addEventListener("click", async (ev) => {
+  const alt = ev.target.closest("[data-alternar-extra]");
+  if (alt) {
+    const e = STATE.dinheiroExtra.find((x) => x.id === alt.dataset.alternarExtra);
+    if (!e) return;
+    try { await updateDoc(doc(db, "dinheiroExtra", e.id), { recebido: e.recebido !== true }); }
+    catch (err) { mostrarToast("Não foi possível atualizar: " + err.message, true); }
+    return;
+  }
+  const ed = ev.target.closest("[data-editar-extra]");
+  if (ed) abrirModalExtra(ed.dataset.editarExtra);
+});
+
+document.getElementById("btn-add-extra").addEventListener("click", async () => {
+  const descricao = document.getElementById("extra-descricao").value.trim();
+  const valor = Number(document.getElementById("extra-valor").value);
+  const data = document.getElementById("extra-data").value;
+  const recebido = document.getElementById("extra-recebido").value === "true";
+  if (!descricao || !valor || valor <= 0 || !data) return mostrarToast("Preencha descrição, valor e data prevista.", true);
+  try {
+    await addDoc(collection(db, "dinheiroExtra"), { descricao, valor, data, recebido, createdAt: serverTimestamp() });
+    ["extra-descricao", "extra-valor"].forEach((id) => (document.getElementById(id).value = ""));
+    mostrarToast("Dinheiro extra adicionado!");
+  } catch (err) { mostrarToast("Não foi possível salvar: " + err.message, true); }
+});
+
+function abrirModalExtra(id) {
+  const e = STATE.dinheiroExtra.find((x) => x.id === id);
+  if (!e) return;
+  document.getElementById("edit-extra-id").value = e.id;
+  document.getElementById("edit-extra-descricao").value = e.descricao;
+  document.getElementById("edit-extra-valor").value = e.valor;
+  document.getElementById("edit-extra-data").value = e.data;
+  document.getElementById("edit-extra-recebido").value = e.recebido === true ? "true" : "false";
+  document.getElementById("modal-extra").classList.add("active");
+}
+const fecharModalExtra = () => document.getElementById("modal-extra").classList.remove("active");
+document.getElementById("btn-cancelar-extra").addEventListener("click", fecharModalExtra);
+document.getElementById("modal-extra").addEventListener("click", (e) => { if (e.target.id === "modal-extra") fecharModalExtra(); });
+document.getElementById("btn-salvar-extra").addEventListener("click", async () => {
+  const id = document.getElementById("edit-extra-id").value;
+  const descricao = document.getElementById("edit-extra-descricao").value.trim();
+  const valor = Number(document.getElementById("edit-extra-valor").value);
+  const data = document.getElementById("edit-extra-data").value;
+  const recebido = document.getElementById("edit-extra-recebido").value === "true";
+  if (!descricao || !valor || valor <= 0 || !data) return mostrarToast("Preencha descrição, valor e data prevista.", true);
+  try { await updateDoc(doc(db, "dinheiroExtra", id), { descricao, valor, data, recebido }); fecharModalExtra(); mostrarToast("Salvo!"); }
+  catch (err) { mostrarToast("Não foi possível salvar: " + err.message, true); }
+});
+document.getElementById("btn-excluir-extra").addEventListener("click", async () => {
+  const id = document.getElementById("edit-extra-id").value;
+  if (!confirm("Excluir este dinheiro extra?")) return;
+  try { await deleteDoc(doc(db, "dinheiroExtra", id)); fecharModalExtra(); mostrarToast("Excluído."); }
+  catch (err) { mostrarToast("Não foi possível excluir: " + err.message, true); }
+});
+
+/* ══════════════ APARÊNCIA (cores do app) ══════════════ */
+
+const TEMA_PADRAO = { bg: "#F6F4EE", panel: "#FFFFFF", sidebar: "#FFFFFF", ink: "#211C10", accent: "#F5C400" };
+const TEMA_PRESETS = {
+  dourado: TEMA_PADRAO,
+  escuro: { bg: "#0B0B0B", panel: "#161616", sidebar: "#101010", ink: "#F5EFD8", accent: "#FFD21F" },
+  neon: { bg: "#050706", panel: "#0D1210", sidebar: "#080C0A", ink: "#E9FFF2", accent: "#39FF14" },
+  azul: { bg: "#F4F7FB", panel: "#FFFFFF", sidebar: "#FFFFFF", ink: "#14213D", accent: "#2563EB" }
+};
+let temaAtual = { ...TEMA_PADRAO };
+
+function luminanciaHex(hex) {
+  const n = parseInt(String(hex).replace("#", ""), 16);
+  const c = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); });
+  return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+}
+
+function aplicarTema(t) {
+  const r = document.documentElement;
+  r.style.setProperty("--bg", t.bg);
+  r.style.setProperty("--panel", t.panel);
+  r.style.setProperty("--ink", t.ink);
+  r.style.setProperty("--accent", t.accent);
+  r.style.setProperty("--sidebar-bg", t.sidebar);
+  r.style.setProperty("--on-accent", luminanciaHex(t.accent) > 0.4 ? "#1A1400" : "#FFFFFF");
+  const menuClaro = luminanciaHex(t.sidebar) > 0.4;
+  r.style.setProperty("--sidebar-ink", menuClaro ? "#4A4432" : "#D9D9D9");
+  r.style.setProperty("--sidebar-accent", menuClaro ? `color-mix(in srgb, ${t.accent} 52%, #211C10)` : t.accent);
+  r.style.colorScheme = luminanciaHex(t.bg) < 0.25 ? "dark" : "light";
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute("content", t.sidebar);
+  [["tema-bg", "bg"], ["tema-panel", "panel"], ["tema-sidebar", "sidebar"], ["tema-ink", "ink"], ["tema-accent", "accent"]]
+    .forEach(([id, k]) => { const el = document.getElementById(id); if (el) el.value = t[k]; });
+}
+
+function salvarTema(t) {
+  temaAtual = { ...t };
+  aplicarTema(temaAtual);
+  try { localStorage.setItem("finleo-tema", JSON.stringify(temaAtual)); } catch (e) { /* navegador sem storage */ }
+}
+
+(function iniciarTema() {
+  try {
+    const salvo = JSON.parse(localStorage.getItem("finleo-tema") || "null");
+    if (salvo && salvo.bg && salvo.accent) temaAtual = { ...TEMA_PADRAO, ...salvo };
+  } catch (e) { /* usa o padrão */ }
+  aplicarTema(temaAtual);
+})();
+
+[["tema-bg", "bg"], ["tema-panel", "panel"], ["tema-sidebar", "sidebar"], ["tema-ink", "ink"], ["tema-accent", "accent"]].forEach(([id, k]) => {
+  document.getElementById(id).addEventListener("input", (e) => salvarTema({ ...temaAtual, [k]: e.target.value }));
+});
+document.querySelectorAll("[data-tema-preset]").forEach((b) => b.addEventListener("click", () => salvarTema(TEMA_PRESETS[b.dataset.temaPreset])));
+document.getElementById("btn-tema-restaurar").addEventListener("click", () => salvarTema(TEMA_PADRAO));
 
 /* ══════════════ LISTENERS EM TEMPO REAL ══════════════ */
 
@@ -4421,10 +4665,11 @@ function iniciarListeners() {
     renderHistorico();
   }, (err) => mostrarToast("Erro ao carregar histórico: " + err.message, true));
 
-  onSnapshot(query(collection(db, "pessoas"), orderBy("nome")), (snap) => {
-    STATE.pessoas = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    preencherSelectsPessoa();
-  }, (err) => mostrarToast("Erro ao carregar pessoas: " + err.message, true));
+  onSnapshot(collection(db, "dinheiroExtra"), (snap) => {
+    STATE.dinheiroExtra = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    renderDinheiroExtra();
+    renderDashboard();
+  }, (err) => mostrarToast("Erro ao carregar dinheiro extra: " + err.message, true));
 
   onSnapshot(collection(db, "planos"), (snap) => {
     STATE.planos = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
@@ -4472,6 +4717,7 @@ function iniciarListeners() {
     STATE.config = snap.exists() ? snap.data() : { rendaMensal: 0, saldoInicial: 0 };
     document.getElementById("cfg-renda").value = STATE.config.rendaMensal || 0;
     document.getElementById("cfg-saldo").value = STATE.config.saldoInicial || 0;
+    document.getElementById("cfg-nomes-proprios").value = nomesProprios().join(", ");
     renderDashboard();
   }, (err) => mostrarToast("Erro ao carregar configurações: " + err.message, true));
 }

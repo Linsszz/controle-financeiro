@@ -141,21 +141,9 @@ publicada reflita o código novo — só salvar no editor não é suficiente.
 - **planos/{id}**: `icone`, `nome`, `descricao`, `valorAlvo`, `valorAcumulado`, `aportePlanejadoMensal`, `createdAt` — metas de economia (aba "Planos")
 - **listaCompras/{id}**: `nome`, `descricao`, `valorEstimado`, `categoria`, `tipoCompra` (`Recorrente`/`Pontual`), `status` (`Pendente`/`Comprado`/`Cancelado`), `recorrenciaFrequencia` (`semanal`/`mensal`/`anual`/`personalizada`, só em itens Recorrentes), `recorrenciaIntervaloDias` (só quando a frequência é `personalizada`), `ultimaCompra`, `proximaCompra`, `createdAt` — lembretes de compras futuras (aba "Lista de Compras"), não mexe em saldo nenhum
 - **planos/{id}/aportes/{id}**: `tipo` (`Aporte`/`Retirada`), `valor`, `data`, `timestamp` — log permanente de cada aporte/retirada de um plano, create-only
-- **pessoas/{id}**: `nome`, `createdAt` — alimenta os selects de "Quem comprou" em Movimentações e Cartão de Crédito
 - **conexoesBancarias/{id}**: `itemId` (id do "item" na Pluggy), `instituicao`, `status` (`conectado`/`erro`/`reconexao_necessaria`), `ultimaSincronizacao`, `ativoParaPessoal`, `createdAt` — um documento por banco conectado via Open Finance
 - **cartoesOpenFinance/{id}**: `conexaoId`, `instituicao`, `accountId`, `nome`, `bandeira`, `limiteTotal`, `limiteUtilizado`, `limiteDisponivel`, `dataFechamento`, `dataVencimento`, `ultimaSincronizacao` — cartões descobertos via Open Finance, só leitura
 - **regrasCategorizacaoOF/{id}**: `chave`, `lancamentoId`, `descricaoExemplo`, `atualizadoEm` — "essa transação sempre vira esse lançamento", aprendida quando você recategoriza uma transação importada
-
-### Sobre o campo "Quem comprou"
-
-É um `<select>` alimentado pela coleção `pessoas`, com um botão "+" pra
-cadastrar gente nova sem sair da tela. Pra manter a migração simples, ele
-guarda o **nome** da pessoa (não um ID) em `responsavel` — então renomear
-uma pessoa cadastrada não atualiza registros antigos automaticamente (é
-diferente de como `lancamentoId` funciona). Registros antigos que já
-tinham um texto livre em "Quem comprou" (de antes dessa mudança) continuam
-aparecendo normalmente nos selects, marcados como "(não cadastrado)" até
-você cadastrar a pessoa de verdade ou trocar por uma existente.
 
 ### Sobre as movimentações importadas de "Conexões Bancárias"
 
@@ -263,7 +251,7 @@ pra recomeçar do zero a partir de uma data, sem perder o passado.
 Como funciona:
 
 1. Marque o que quer limpar (por padrão: movimentações e compras parceladas;
-   lançamentos, cartões e pessoas ficam desmarcados, porque normalmente você
+   lançamentos e cartões ficam desmarcados, porque normalmente você
    quer manter os cadastros).
 2. Opcionalmente preencha **"Apagar só até a data"** — só as movimentações
    até aquele dia (inclusive) são apagadas. Deixando em branco, apaga tudo
@@ -276,13 +264,36 @@ só clicar em **"📦 Ver dados arquivados"** pra consultar (filtrando por
 limpeza) ou em **"Baixar arquivo em CSV"** pra abrir no Excel. O arquivo é
 só-leitura: não entra em nenhum cálculo, KPI ou gráfico do sistema.
 
-O **Histórico de Alterações** nunca é apagado — as regras do Firestore nem
-permitem. Cada limpeza também deixa um registro lá.
+O **Histórico de Alterações** não é apagado por este botão — só o "Resetar
+tudo" (abaixo) apaga o histórico também. Cada limpeza deixa um registro lá.
 
 > **Importante:** as coleções `arquivo` e `resets` precisam das regras novas.
 > Se você já tinha publicado o `firestore.rules` antes desta versão, publique
 > de novo (Firebase Console > Firestore > Regras), senão o botão de zerar vai
 > falhar com erro de permissão.
+
+## Resetar tudo (base limpa a partir de agora, incluindo o Histórico)
+
+Logo abaixo do "Zerar controle financeiro", existe o card "🔴 Resetar tudo".
+É a versão sem meio-termo: apaga **todas** as coleções de uma vez —
+movimentações, compras parceladas, recorrentes, lista de compras, planos,
+cartões, lançamentos, renda/saldo e, diferente do botão acima, **o Histórico
+de Alterações também**. Depois dele, todas as abas (Dashboard incluído)
+mostram só o que você cadastrar dali pra frente.
+
+Como funciona:
+
+1. Digite `RESETAR TUDO` no campo de confirmação.
+2. Clique em **Resetar tudo agora** e confirme o aviso.
+
+Assim como no botão de zerar, tudo é copiado pro arquivo antes de ser
+apagado — nada some de verdade, só sai da tela do dia a dia. Logo depois do
+reset, um único registro novo é criado no Histórico, marcando a data em que
+você recomeçou (é o primeiro item da sua "nova base").
+
+> **Importante:** este botão também depende de uma regra nova — a coleção
+> `historico` passou a permitir exclusão (antes era bloqueada de propósito).
+> Publique o `firestore.rules` desta versão antes de usar o botão.
 
 ## Revisar e classificar movimentações
 
@@ -296,7 +307,37 @@ Na aba **Movimentações**:
   `Esc` fecha. Ao confirmar uma transação importada do banco, o sistema
   aprende a regra e já categoriza sozinho as próximas parecidas.
 - Os **checkboxes** de cada linha (mais "Selecionar tudo do filtro") liberam
-  a barra de ações em lote: aplicar um lançamento, definir quem comprou,
-  marcar como revisadas/pagas/pendentes ou excluir várias de uma vez.
+  a barra de ações em lote: aplicar um lançamento, marcar como
+  revisadas/pagas/pendentes ou excluir várias de uma vez.
 - **Itens por página** vai de 30 até "Todas", e a paginação tem botões de
   primeira/última página.
+
+## Dinheiro extra
+
+Aba **Dinheiro extra**: cadastre valores que vão entrar (descrição, valor, data
+prevista e se já entrou). Clique no selo (A RECEBER / JÁ ENTROU) pra alternar.
+O que **já entrou** soma no *Saldo atual* e na renda do mês do Dashboard; o que
+**ainda vai entrar** soma no *Saldo previsto*. Coleção `dinheiroExtra` — precisa
+das regras novas (republique o `firestore.rules`).
+
+## Reconhecimento automático de categoria
+
+Ao sincronizar com o banco, cada transação nova passa por (nessa ordem):
+1. regra que você ensinou ao recategorizar uma transação;
+2. **transferência entre contas suas** — o nome que estiver em *Configurações >
+   Meus nomes* (padrão: LEONARDO DA SILVA LINS) vira "Transferência" e não conta
+   como ganho nem gasto (nem mexe no saldo);
+3. padrões conhecidos (Uber → Transporte, iFood → Alimentação, Netflix →
+   Assinaturas, farmácias → Saúde etc.; lista `REGRAS_CATEGORIA` no `app.js`);
+4. a categoria que o próprio banco manda, como dica;
+5. não reconheceu → fica **A REVISAR** no Modo revisão.
+
+O botão **Reclassificar a revisar** (Configurações) aplica o mesmo
+reconhecimento às movimentações do banco que já estavam esperando revisão.
+
+## Cores do app
+
+**Configurações > Aparência**: escolha fundo, cartões, menu lateral, texto e a
+cor de destaque/bordas (o padrão é branco com dourado neon). Há atalhos prontos
+(preto + dourado, preto + verde neon, azul) e "Restaurar padrão". As cores
+ficam salvas no navegador em que você escolheu.

@@ -70,7 +70,12 @@ service cloud.firestore {
     match /historico/{id} {
       allow read: if true;
       allow create: if request.resource.data.keys().hasAll(['campo', 'valorAnterior', 'valorNovo']);
-      allow update, delete: if false;
+      allow update: if false;
+      // Igual às outras coleções (delete: if true) — normalmente o app nunca
+      // chama delete aqui sozinho, só como parte do botão "Resetar tudo"
+      // (que arquiva cada item antes de apagar). Ver comentário no topo do
+      // arquivo: estas regras são de formato, não de identidade.
+      allow delete: if true;
     }
 
     match /config/{id} {
@@ -84,11 +89,14 @@ service cloud.firestore {
       allow delete: if true;
     }
 
-    match /pessoas/{id} {
+    // Dinheiro extra: valores que vão entrar (data prevista + se já entrou).
+    match /dinheiroExtra/{id} {
       allow read: if true;
-      allow create, update: if request.resource.data.nome is string
-                    && request.resource.data.nome.size() > 0
-                    && request.resource.data.nome.size() < 100;
+      allow create, update: if request.resource.data.descricao is string
+                    && request.resource.data.descricao.size() > 0
+                    && request.resource.data.descricao.size() < 200
+                    && request.resource.data.valor is number
+                    && request.resource.data.recebido is bool;
       allow delete: if true;
     }
 
