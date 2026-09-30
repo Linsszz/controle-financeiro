@@ -374,3 +374,21 @@ O ícone (letra L dourada, moeda e gráfico) está em `icon-192.png`,
 arredondado), `apple-touch-icon.png` (iPhone) e `favicon*` (aba do navegador).
 Celular e PC guardam o ícone antigo em cache: **remova o app da tela inicial e
 instale de novo** (no PC: desinstalar o app instalado e instalar outra vez).
+
+## Meta de guardar no mês (e os dois indicadores de "quanto dá pra gastar")
+
+Em **Configurações**, junto da renda mensal e do saldo inicial, tem o campo
+**"Quanto quero guardar este mês"**. Ele é descontado automaticamente nestes
+dois indicadores do Dashboard, que agora aparecem em destaque (cards maiores,
+com uma legenda embaixo explicando o número):
+
+- **Quanto posso gastar por dia** — saldo atual menos a meta de guardar,
+  dividido pelos dias que faltam no mês. Fica vermelho e negativo se guardar
+  a meta significa não sobrar nada (ou faltar) pra gastar.
+- **Gasto permitido até hoje** — a mesma lógica, mas olhando pra trás: quanto
+  da renda (já descontada a meta) você "tinha permissão" de ter gasto até
+  hoje. A legenda mostra quanto você já gastou de fato e se ainda tem folga
+  ou já passou do ritmo.
+
+Se você deixar "Quanto quero guardar" em branco ou zero, os dois voltam a
+funcionar exatamente como antes (sem desconto nenhum).

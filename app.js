@@ -30,7 +30,7 @@ const STATE = {
   conexoesBancarias: [],
   cartoesOpenFinance: [],
   regrasCategorizacaoOF: [],
-  config: { rendaMensal: 0, saldoInicial: 0 },
+  config: { rendaMensal: 0, saldoInicial: 0, metaGuardarMes: 0 },
   filtroMovMesDe: "",
   filtroMovMesAte: "",
   filtroMovBanco: "",
@@ -336,9 +336,15 @@ function calcularDashboard(mes) {
     const hoje = new Date();
     diasRestantes = diasNoMes(mes) - hoje.getDate() + 1;
   }
-  const gastoPorDia = diasRestantes > 0 ? saldoAtual / diasRestantes : 0;
+  // Desconta o quanto você quer guardar este mês ANTES de dividir pelos dias
+  // que faltam — assim "quanto posso gastar por dia" já deixa essa reserva de
+  // fora (pode ficar negativo: é o aviso de que, guardando a meta, não sobra
+  // nada pra gastar — ou já faltou dinheiro pra guardar o que você queria).
+  const metaGuardarMes = Number(STATE.config.metaGuardarMes) || 0;
+  const saldoDisponivelParaGastar = saldoAtual - metaGuardarMes;
+  const gastoPorDia = diasRestantes > 0 ? saldoDisponivelParaGastar / diasRestantes : 0;
 
-  return { saldoAtual, entradasMes, saidasMes, entradasPagasMes, saidasPagasMes, diasRestantes, gastoPorDia };
+  return { saldoAtual, entradasMes, saidasMes, entradasPagasMes, saidasPagasMes, diasRestantes, gastoPorDia, metaGuardarMes, saldoDisponivelParaGastar };
 }
 
 /* ══════════════ GRÁFICO "GASTOS POR CATEGORIA" + ESTIMATIVA MENSAL ══════════════
@@ -1833,11 +1839,16 @@ function renderHistorico() {
   )).join("");
 }
 
-function kpiCard(label, value, positivo) {
+function kpiCard(label, value, positivo, opts) {
+  const o = opts || {};
+  const classes = ["kpi-card", positivo ? "positive" : "negative"];
+  if (o.destaque) classes.push("destaque");
   return (
-    `<div class="kpi-card ${positivo ? "positive" : "negative"}">` +
+    `<div class="${classes.join(" ")}">` +
     `<div class="label">${label}</div>` +
-    `<div class="value num">${value}</div></div>`
+    `<div class="value num">${value}</div>` +
+    (o.sub ? `<div class="sub">${o.sub}</div>` : "") +
+    `</div>`
   );
 }
 
@@ -1892,9 +1903,18 @@ function calcularIndicadoresGeraisDash() {
   const diaAtual = hoje.getDate();
   const ultimoDiaMes = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0).getDate();
   const percentualRendaGasta = rendaMensal > 0 ? (saidasPagasMes / rendaMensal) * 100 : 0;
-  const gastoPermitidoAteHoje = rendaMensal > 0 ? (rendaMensal / ultimoDiaMes) * diaAtual : 0;
+  // Mesma ideia do "gasto por dia": o orçamento que dá pra gastar no mês é a
+  // renda MENOS o quanto você quer guardar — só esse valor é rateado pelos
+  // dias do mês pra saber o quanto já podia ter sido gasto até hoje.
+  const metaGuardarMes = Number(STATE.config.metaGuardarMes) || 0;
+  const orcamentoDisponivelMes = rendaMensal - metaGuardarMes;
+  const gastoPermitidoAteHoje = rendaMensal > 0 ? (orcamentoDisponivelMes / ultimoDiaMes) * diaAtual : 0;
+  // Folga real: o que você já podia ter gasto até hoje menos o que já gastou
+  // de fato. Negativo = já passou do ritmo (risco de faltar dinheiro pra
+  // guardar a meta ou pra fechar o mês).
+  const folgaAteHoje = gastoPermitidoAteHoje - saidasPagasMes;
 
-  return { saldoPrevisto, percentualRendaGasta, gastoPermitidoAteHoje, parcelasCartaoFuturas };
+  return { saldoPrevisto, percentualRendaGasta, gastoPermitidoAteHoje, folgaAteHoje, saidasPagasMes, metaGuardarMes, parcelasCartaoFuturas };
 }
 
 /* ══════════════ DASHBOARD: PAINEL DE PERÍODO (filtros + gráficos + transações) ══════════════
@@ -2273,10 +2293,18 @@ function renderDashboard() {
     kpiCard("Renda do mês", moeda(d.entradasMes), true) +
     kpiCard("Total a pagar no mês", moeda(d.saidasMes), true) +
     kpiCard("Já pago no mês", moeda(d.saidasPagasMes), true) +
-    kpiCard("Quanto posso gastar por dia", moeda(d.gastoPorDia) + ` <small>(${d.diasRestantes} dias)</small>`, d.gastoPorDia >= 0) +
+    kpiCard("Quanto posso gastar por dia", moeda(d.gastoPorDia) + ` <small>(${d.diasRestantes} dias)</small>`, d.gastoPorDia >= 0, {
+      destaque: true,
+      sub: d.metaGuardarMes > 0 ? `Já deixando ${moeda(d.metaGuardarMes)} reservado pra guardar este mês` : "Defina em Configurações quanto quer guardar este mês"
+    }) +
     kpiCard("Saldo previsto", moeda(geral.saldoPrevisto), geral.saldoPrevisto >= 0) +
     kpiCard("% da renda gasta no mês", geral.percentualRendaGasta.toFixed(1) + "%", geral.percentualRendaGasta <= 100) +
-    kpiCard("Gasto permitido até hoje", moeda(geral.gastoPermitidoAteHoje), true) +
+    kpiCard("Gasto permitido até hoje", moeda(geral.gastoPermitidoAteHoje), geral.folgaAteHoje >= 0, {
+      destaque: true,
+      sub: geral.folgaAteHoje >= 0
+        ? `Já gastou ${moeda(geral.saidasPagasMes)} — ainda tem ${moeda(geral.folgaAteHoje)} de folga`
+        : `Já gastou ${moeda(geral.saidasPagasMes)} — ${moeda(Math.abs(geral.folgaAteHoje))} acima do previsto pra hoje`
+    }) +
     kpiCard("Parcelas futuras no cartão", moeda(geral.parcelasCartaoFuturas), true);
   renderDashboardMovs(mes);
   renderGraficoCategorias(mes);
@@ -3469,11 +3497,26 @@ async function garantirLancamentoImportado(tipo) {
 }
 
 // Chave usada pra "lembrar" como uma transação foi categorizada da última
-// vez — prioriza o CNPJ do estabelecimento (mais confiável, quando a
-// Pluggy manda) e cai pra descrição normalizada quando não tem CNPJ (ex:
-// Pix, boleto). Ver garantirRegraCategorizacao() e a seção de regras.
+// vez. Prioridade:
+//   1) CNPJ do estabelecimento (compra no cartão/débito — o mais confiável);
+//   2) documento (CPF/CNPJ) de quem está do outro lado do Pix — pra "entrada"
+//      é quem PAGOU, pra "saída" é quem RECEBEU;
+//   3) nome dessa mesma contraparte, quando o banco não manda o documento;
+//   4) descrição normalizada, como último recurso.
+// O passo 2/3 existe por causa do Pix: a Pluggy muitas vezes manda uma
+// descrição genérica tipo "Pix recebido" sem nome nenhum — usar só a
+// descrição faria a regra aprendida pra UMA pessoa (ex: "cigarro") valer
+// pra Pix de QUALQUER pessoa. Nome/documento de quem pagou ou recebeu é o
+// que de fato identifica "o Pix daquela pessoa".
 function chaveCategorizador(t) {
   if (t.merchant && t.merchant.cnpj) return "cnpj:" + t.merchant.cnpj;
+  const pd = t.paymentData || {};
+  const contraparte = Number(t.amount) < 0 ? pd.receiver : pd.payer;
+  if (contraparte) {
+    const doc = contraparte.documentNumber || contraparte.document || contraparte.cpfCnpj;
+    if (doc) return "doc:" + String(doc).replace(/\D/g, "");
+    if (contraparte.name && contraparte.name.trim()) return "pessoa:" + normalizarTexto(contraparte.name);
+  }
   const desc = String(t.description || t.descriptionRaw || "").trim().toUpperCase();
   return desc ? "desc:" + desc : null;
 }
@@ -4068,8 +4111,9 @@ if (btnConectarBanco) {
 document.getElementById("btn-salvar-config").addEventListener("click", async () => {
   const rendaMensal = Number(document.getElementById("cfg-renda").value) || 0;
   const saldoInicial = Number(document.getElementById("cfg-saldo").value) || 0;
+  const metaGuardarMes = Number(document.getElementById("cfg-meta-guardar").value) || 0;
   try {
-    await setDoc(doc(db, "config", "geral"), { rendaMensal, saldoInicial }, { merge: true });
+    await setDoc(doc(db, "config", "geral"), { rendaMensal, saldoInicial, metaGuardarMes }, { merge: true });
     mostrarToast("Configurações salvas!");
   } catch (err) {
     mostrarToast("Não foi possível salvar: " + err.message, true);
@@ -4153,7 +4197,7 @@ document.getElementById("btn-zerar-sistema").addEventListener("click", async () 
     }
 
     if (zerarConfig) {
-      await setDoc(doc(db, "config", "geral"), { rendaMensal: 0, saldoInicial: 0 }, { merge: true });
+      await setDoc(doc(db, "config", "geral"), { rendaMensal: 0, saldoInicial: 0, metaGuardarMes: 0 }, { merge: true });
     }
 
     // Ficha da limpeza, pro filtro do modal de arquivo.
@@ -4347,7 +4391,7 @@ document.getElementById("btn-resetar-tudo").addEventListener("click", async () =
       }
     }
 
-    await setDoc(doc(db, "config", "geral"), { rendaMensal: 0, saldoInicial: 0 }, { merge: true });
+    await setDoc(doc(db, "config", "geral"), { rendaMensal: 0, saldoInicial: 0, metaGuardarMes: 0 }, { merge: true });
 
     await setDoc(doc(db, "resets", resetId), {
       quando, total: totalGeral, ateData: null, zerouConfig: true, tipo: "total",
@@ -4771,9 +4815,10 @@ function iniciarListeners() {
   }, (err) => mostrarToast("Erro ao carregar feriados: " + err.message, true));
 
   onSnapshot(doc(db, "config", "geral"), (snap) => {
-    STATE.config = snap.exists() ? snap.data() : { rendaMensal: 0, saldoInicial: 0 };
+    STATE.config = snap.exists() ? snap.data() : { rendaMensal: 0, saldoInicial: 0, metaGuardarMes: 0 };
     document.getElementById("cfg-renda").value = STATE.config.rendaMensal || 0;
     document.getElementById("cfg-saldo").value = STATE.config.saldoInicial || 0;
+    document.getElementById("cfg-meta-guardar").value = STATE.config.metaGuardarMes || 0;
     document.getElementById("cfg-nomes-proprios").value = nomesProprios().join(", ");
     renderDashboard();
   }, (err) => mostrarToast("Erro ao carregar configurações: " + err.message, true));

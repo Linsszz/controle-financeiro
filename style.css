@@ -84,6 +84,29 @@ header.top .view-desc{font-size:13px;color:var(--ink-soft);margin-top:6px;max-wi
 .kpi-card.negative .value{color:var(--debit);}
 .kpi-card.positive .value{color:var(--credit);}
 
+/* Destaque extra pros dois indicadores de "quanto dá pra gastar" — maiores,
+   com uma legenda embaixo e um contorno mais forte, pra chamar mais atenção
+   do que os outros KPIs e ajudar a não estourar o orçamento. */
+.kpi-card.destaque{
+  grid-column:span 2;
+  border-width:2px;
+  border-left-width:6px;
+  background:linear-gradient(135deg, var(--accent-soft), var(--panel) 60%);
+  box-shadow:0 0 0 1px var(--line), 0 0 22px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.kpi-card.destaque.negative{
+  background:linear-gradient(135deg, var(--debit-soft), var(--panel) 60%);
+  box-shadow:0 0 0 1px var(--debit), 0 0 22px color-mix(in srgb, var(--debit) 22%, transparent);
+}
+.kpi-card.destaque .label{font-size:12.5px;}
+.kpi-card.destaque .value{font-size:30px;}
+.kpi-card.destaque .sub{font-family:var(--sans);font-size:12px;font-weight:600;color:var(--ink-soft);margin-top:6px;line-height:1.4;}
+.kpi-card.destaque.negative .sub{color:var(--debit);}
+@media (max-width:640px){
+  .kpi-card.destaque{grid-column:span 2;}
+  .kpi-card.destaque .value{font-size:24px;}
+}
+
 .row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;}
 .field{display:flex;flex-direction:column;gap:5px;flex:1;min-width:150px;}
 .field label{font-size:11.5px;color:var(--ink-soft);font-weight:700;text-transform:uppercase;letter-spacing:.03em;}
