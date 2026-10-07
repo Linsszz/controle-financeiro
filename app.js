@@ -286,15 +286,42 @@ function calcularFaturaMesAtual(cartaoId) {
   return total;
 }
 
-// "Saldo atual" agora é só do mês escolhido: recebido (entradas pagas) menos
-// pago (saídas pagas) — bate com a ideia de "quanto sobrou na conta", sem
-// misturar contas de outros meses. O "saldo inicial" configurado (aba
-// Configurações, "o que você tem em caixa hoje") só entra quando o mês
-// escolhido é o mês corrente de verdade — pra mês passado/futuro ele não
-// faz sentido, porque não representa o caixa daquele período.
-function calcularDashboard(mes) {
+// Saldo real "de hoje": saldo inicial + tudo que já foi pago (entrada ou
+// saída) desde então, em QUALQUER mês — não só no mês que está sendo visto
+// na tela. Ignora faturas de cartão (controladas à parte, não é dinheiro
+// saindo da conta na hora), transferência entre contas próprias (é neutra)
+// e movimentações de bancos que você desconectou/removeu em Conexões
+// Bancárias (senão o saldo de um banco que não existe mais continuava
+// contando pra sempre). É esse número que deve bater com o saldo de
+// verdade da sua conta — por isso NÃO reseta ao trocar de mês no Dashboard
+// nem precisa que você atualize o saldo inicial todo mês.
+function calcularSaldoAtualReal() {
   const mapaLanc = mapaLancamentos();
   const saldoInicial = Number(STATE.config.saldoInicial) || 0;
+  const conexoesAtivas = conexoesAtivasParaPessoal();
+  let saldo = saldoInicial;
+  STATE.movimentacoes.forEach((m) => {
+    if (!movimentacaoVisivel(m, conexoesAtivas)) return;
+    if (m.pago !== true) return;
+    const l = mapaLanc[m.lancamentoId] || {};
+    const ehCartao = m.contaTipo === "cartao" || !!m.cartaoId;
+    const ehTransferencia = l.tipo === "Transferencia";
+    if (ehCartao || ehTransferencia) return;
+    const valor = Number(m.valor) || 0;
+    saldo += l.tipo === "Saida" ? -valor : valor;
+  });
+  STATE.dinheiroExtra.forEach((e) => {
+    if (e.recebido === true) saldo += Number(e.valor) || 0;
+  });
+  return saldo;
+}
+
+// Entradas/saídas SÓ do mês escolhido — útil pra comparar meses e pra saber
+// quanto já entrou/saiu especificamente naquele período (orçamento mensal).
+// Filtra bancos desconectados pelo mesmo motivo do saldo real acima.
+function calcularDashboard(mes) {
+  const mapaLanc = mapaLancamentos();
+  const conexoesAtivas = conexoesAtivasParaPessoal();
   const mesAtual = mesAtualISO();
 
   let entradasMes = 0;
@@ -304,6 +331,7 @@ function calcularDashboard(mes) {
 
   STATE.movimentacoes.forEach((m) => {
     if (String(m.data || "").slice(0, 7) !== mes) return;
+    if (!movimentacaoVisivel(m, conexoesAtivas)) return;
     const l = mapaLanc[m.lancamentoId] || {};
     const valor = Number(m.valor) || 0;
     if (l.tipo === "Entrada") {
@@ -324,7 +352,10 @@ function calcularDashboard(mes) {
     if (e.recebido === true) entradasPagasMes += v;
   });
 
-  const saldoAtual = entradasPagasMes - saidasPagasMes + (mes === mesAtual ? saldoInicial : 0);
+  // Saldo real de hoje, sempre — independe de qual mês você está olhando no
+  // filtro acima (ver calcularSaldoAtualReal). Mostrar um "saldo atual"
+  // diferente por mês não fazia sentido: saldo é uma coisa só, agora.
+  const saldoAtual = calcularSaldoAtualReal();
 
   // Dias restantes: mês passado já não tem mais dias pra gastar; mês futuro
   // conta com o mês inteiro (ainda não começou); mês corrente conta de hoje
@@ -1860,16 +1891,18 @@ function kpiCard(label, value, positivo, opts) {
 function calcularIndicadoresGeraisDash() {
   const mapaLanc = mapaLancamentos();
   const rendaMensal = Number(STATE.config.rendaMensal) || 0;
-  const saldoInicial = Number(STATE.config.saldoInicial) || 0;
 
   const hoje = new Date();
   const anoMes = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`;
 
-  let saldoAtual = saldoInicial;
   let saidasNaoPagas = 0;
   let entradasNaoPagas = 0;
   let saidasPagasMes = 0;
   let parcelasCartaoFuturas = 0;
+  // Salário de verdade já recebido ESTE mês (lançamento "Salário", pago) —
+  // assim que existir, ele substitui o "valor esperado" nos cálculos de %
+  // da renda gasta e gasto permitido, em vez da estimativa de Configurações.
+  let salarioRecebidoMes = 0;
 
   const conexoesAtivas = conexoesAtivasParaPessoal();
   STATE.movimentacoes.forEach((m) => {
@@ -1878,43 +1911,53 @@ function calcularIndicadoresGeraisDash() {
     const valor = Number(m.valor) || 0;
     const ehSaida = l.tipo === "Saida";
     const dataAnoMes = String(m.data || "").slice(0, 7);
-    const ehCartao = m.contaTipo === "cartao" || !!m.cartaoId;
     const ehTransferencia = l.tipo === "Transferencia";
+    const ehSalario = l.tipo === "Entrada" && (l.nome === "Salário" || l.categoria === "Salário");
 
     if (m.pago === true) {
-      // Transferência entre contas é neutra: não soma nem subtrai do saldo.
-      if (!ehCartao && !ehTransferencia) saldoAtual += ehSaida ? -valor : valor;
       if (!ehTransferencia && ehSaida && dataAnoMes === anoMes) saidasPagasMes += valor;
+      if (ehSalario && dataAnoMes === anoMes) salarioRecebidoMes += valor;
     } else {
       if (!ehTransferencia) {
         if (ehSaida) saidasNaoPagas += valor;
         else entradasNaoPagas += valor;
       }
-      if (m.cartaoId) parcelasCartaoFuturas += valor;
+      // Só MESES FUTUROS (não o atual): as parcelas de cartão deste mês já
+      // entram em "saidasNaoPagas"/"Total a pagar no mês" — contar de novo
+      // aqui duplicaria o valor quando os dois números forem somados no
+      // card "Total a pagar no mês" (ver renderDashboard).
+      if (m.cartaoId && dataAnoMes > anoMes) parcelasCartaoFuturas += valor;
     }
   });
 
   STATE.dinheiroExtra.forEach((e) => {
-    const v = Number(e.valor) || 0;
-    if (e.recebido === true) saldoAtual += v; else entradasNaoPagas += v;
+    if (e.recebido !== true) entradasNaoPagas += Number(e.valor) || 0;
   });
+
+  // Saldo real de hoje (ver calcularSaldoAtualReal) — mesma fonte usada no
+  // card "Saldo atual" do Dashboard, pra nunca divergir entre as duas telas.
+  const saldoAtual = calcularSaldoAtualReal();
 
   const saldoPrevisto = saldoAtual - saidasNaoPagas + entradasNaoPagas;
   const diaAtual = hoje.getDate();
   const ultimoDiaMes = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0).getDate();
-  const percentualRendaGasta = rendaMensal > 0 ? (saidasPagasMes / rendaMensal) * 100 : 0;
+  // Enquanto o salário não cai, usa o valor esperado (Configurações); assim
+  // que o Pix reconhecido chega e é marcado como pago, o valor real dele
+  // passa a valer no lugar do esperado — ver "ehSalario" acima.
+  const rendaBase = salarioRecebidoMes > 0 ? salarioRecebidoMes : rendaMensal;
+  const percentualRendaGasta = rendaBase > 0 ? (saidasPagasMes / rendaBase) * 100 : 0;
   // Mesma ideia do "gasto por dia": o orçamento que dá pra gastar no mês é a
   // renda MENOS o quanto você quer guardar — só esse valor é rateado pelos
   // dias do mês pra saber o quanto já podia ter sido gasto até hoje.
   const metaGuardarMes = Number(STATE.config.metaGuardarMes) || 0;
-  const orcamentoDisponivelMes = rendaMensal - metaGuardarMes;
-  const gastoPermitidoAteHoje = rendaMensal > 0 ? (orcamentoDisponivelMes / ultimoDiaMes) * diaAtual : 0;
+  const orcamentoDisponivelMes = rendaBase - metaGuardarMes;
+  const gastoPermitidoAteHoje = rendaBase > 0 ? (orcamentoDisponivelMes / ultimoDiaMes) * diaAtual : 0;
   // Folga real: o que você já podia ter gasto até hoje menos o que já gastou
   // de fato. Negativo = já passou do ritmo (risco de faltar dinheiro pra
   // guardar a meta ou pra fechar o mês).
   const folgaAteHoje = gastoPermitidoAteHoje - saidasPagasMes;
 
-  return { saldoPrevisto, percentualRendaGasta, gastoPermitidoAteHoje, folgaAteHoje, saidasPagasMes, metaGuardarMes, parcelasCartaoFuturas };
+  return { saldoAtual, saldoPrevisto, percentualRendaGasta, gastoPermitidoAteHoje, folgaAteHoje, saidasPagasMes, metaGuardarMes, parcelasCartaoFuturas };
 }
 
 /* ══════════════ DASHBOARD: PAINEL DE PERÍODO (filtros + gráficos + transações) ══════════════
@@ -2288,10 +2331,18 @@ function renderDashboard() {
   const mes = STATE.filtroDashMes || mesAtualISO();
   const d = calcularDashboard(mes);
   const geral = calcularIndicadoresGeraisDash();
+  // "Total a pagar no mês" + "Parcelas futuras no cartão" viraram um só
+  // card: tudo que falta pagar este mês mais as parcelas de cartão que já
+  // estão programadas pra meses seguintes (parcelasCartaoFuturas exclui o
+  // mês atual de propósito — ver calcularIndicadoresGeraisDash — pra não
+  // somar a mesma parcela duas vezes).
+  const totalAPagarComCartao = d.saidasMes + geral.parcelasCartaoFuturas;
   document.getElementById("kpi-grid").innerHTML =
     kpiCard("Saldo atual", moeda(d.saldoAtual), d.saldoAtual >= 0) +
     kpiCard("Renda do mês", moeda(d.entradasMes), true) +
-    kpiCard("Total a pagar no mês", moeda(d.saidasMes), true) +
+    kpiCard("Total a pagar no mês", moeda(totalAPagarComCartao), true, {
+      sub: geral.parcelasCartaoFuturas > 0 ? `Inclui ${moeda(geral.parcelasCartaoFuturas)} de parcelas futuras no cartão` : ""
+    }) +
     kpiCard("Já pago no mês", moeda(d.saidasPagasMes), true) +
     kpiCard("Quanto posso gastar por dia", moeda(d.gastoPorDia) + ` <small>(${d.diasRestantes} dias)</small>`, d.gastoPorDia >= 0, {
       destaque: true,
@@ -2304,8 +2355,7 @@ function renderDashboard() {
       sub: geral.folgaAteHoje >= 0
         ? `Já gastou ${moeda(geral.saidasPagasMes)} — ainda tem ${moeda(geral.folgaAteHoje)} de folga`
         : `Já gastou ${moeda(geral.saidasPagasMes)} — ${moeda(Math.abs(geral.folgaAteHoje))} acima do previsto pra hoje`
-    }) +
-    kpiCard("Parcelas futuras no cartão", moeda(geral.parcelasCartaoFuturas), true);
+    });
   renderDashboardMovs(mes);
   renderGraficoCategorias(mes);
   renderEstimativaMeses();
@@ -4109,11 +4159,15 @@ if (btnConectarBanco) {
 /* ══════════════ CONFIGURAÇÕES ══════════════ */
 
 document.getElementById("btn-salvar-config").addEventListener("click", async () => {
-  const rendaMensal = Number(document.getElementById("cfg-renda").value) || 0;
+  // "Renda mensal" virou "Valor esperado do salário" — mesmo campo por
+  // baixo (rendaMensal), só a forma de preencher mudou. Ver sugerirSalario().
+  const rendaMensal = Number(document.getElementById("cfg-salario-valor").value) || 0;
+  const salarioDia = Number(document.getElementById("cfg-salario-dia").value) || 0;
+  const salarioPagador = document.getElementById("cfg-salario-pagador").value.trim();
   const saldoInicial = Number(document.getElementById("cfg-saldo").value) || 0;
   const metaGuardarMes = Number(document.getElementById("cfg-meta-guardar").value) || 0;
   try {
-    await setDoc(doc(db, "config", "geral"), { rendaMensal, saldoInicial, metaGuardarMes }, { merge: true });
+    await setDoc(doc(db, "config", "geral"), { rendaMensal, salarioDia, salarioPagador, saldoInicial, metaGuardarMes }, { merge: true });
     mostrarToast("Configurações salvas!");
   } catch (err) {
     mostrarToast("Não foi possível salvar: " + err.message, true);
@@ -4197,7 +4251,7 @@ document.getElementById("btn-zerar-sistema").addEventListener("click", async () 
     }
 
     if (zerarConfig) {
-      await setDoc(doc(db, "config", "geral"), { rendaMensal: 0, saldoInicial: 0, metaGuardarMes: 0 }, { merge: true });
+      await setDoc(doc(db, "config", "geral"), { rendaMensal: 0, saldoInicial: 0, metaGuardarMes: 0, salarioDia: 0, salarioPagador: "" }, { merge: true });
     }
 
     // Ficha da limpeza, pro filtro do modal de arquivo.
@@ -4391,7 +4445,7 @@ document.getElementById("btn-resetar-tudo").addEventListener("click", async () =
       }
     }
 
-    await setDoc(doc(db, "config", "geral"), { rendaMensal: 0, saldoInicial: 0, metaGuardarMes: 0 }, { merge: true });
+    await setDoc(doc(db, "config", "geral"), { rendaMensal: 0, saldoInicial: 0, metaGuardarMes: 0, salarioDia: 0, salarioPagador: "" }, { merge: true });
 
     await setDoc(doc(db, "resets", resetId), {
       quando, total: totalGeral, ateData: null, zerouConfig: true, tipo: "total",
@@ -4501,6 +4555,15 @@ function nomesProprios() {
   return ["LEONARDO DA SILVA LINS"];
 }
 
+// Nome(s) de quem paga o salário (Configurações > Salário), normalizados —
+// permite mais de um separado por vírgula, pra quando o pagamento vem de
+// fontes diferentes (ex: salário + pró-labore de outra empresa).
+function nomesSalario() {
+  const cfg = STATE.config && STATE.config.salarioPagador;
+  if (typeof cfg === "string" && cfg.trim()) return cfg.split(",").map((x) => normalizarTexto(x)).filter(Boolean);
+  return [];
+}
+
 function textoDaTransacao(t) {
   const pd = t.paymentData || {};
   const nomes = [t.description, t.descriptionRaw, t.merchant && (t.merchant.name || t.merchant.businessName),
@@ -4520,11 +4583,20 @@ function sugerirClassificacao(texto, tipoMov, categoriaBanco) {
     return { chave: "transferencia-propria", nome: "Transferência entre minhas contas", categoria: "Transferência", tipo: "Transferencia" };
   }
 
-  // 2) Padrões conhecidos.
+  // 2) Pix de quem você configurou como pagador do salário (Configurações >
+  // Salário) — reconhece pelo nome, mesmo antes de qualquer padrão genérico.
+  if (tipoMov === "Entrada") {
+    const pagadores = nomesSalario();
+    if (pagadores.some((n) => t.includes(" " + n + " "))) {
+      return { chave: "salario", nome: "Salário", categoria: "Salário", tipo: "Entrada" };
+    }
+  }
+
+  // 3) Padrões conhecidos.
   const regra = REGRAS_CATEGORIA.find((r) => r.tipo === tipoMov && r.padroes.some((p) => t.includes(" " + normalizarTexto(p) + " ")));
   if (regra) return { chave: regra.nome + "|" + regra.tipo, nome: regra.nome, categoria: regra.categoria, tipo: regra.tipo };
 
-  // 3) Dica da categoria que o banco mandou (só pra saídas).
+  // 4) Dica da categoria que o banco mandou (só pra saídas).
   if (tipoMov === "Saida" && categoriaBanco) {
     const cat = String(categoriaBanco).toLowerCase();
     const dica = DICAS_CATEGORIA_BANCO.find((d) => d.trechos.some((x) => cat.includes(x)));
@@ -4815,8 +4887,10 @@ function iniciarListeners() {
   }, (err) => mostrarToast("Erro ao carregar feriados: " + err.message, true));
 
   onSnapshot(doc(db, "config", "geral"), (snap) => {
-    STATE.config = snap.exists() ? snap.data() : { rendaMensal: 0, saldoInicial: 0, metaGuardarMes: 0 };
-    document.getElementById("cfg-renda").value = STATE.config.rendaMensal || 0;
+    STATE.config = snap.exists() ? snap.data() : { rendaMensal: 0, saldoInicial: 0, metaGuardarMes: 0, salarioDia: 0, salarioPagador: "" };
+    document.getElementById("cfg-salario-valor").value = STATE.config.rendaMensal || 0;
+    document.getElementById("cfg-salario-dia").value = STATE.config.salarioDia || "";
+    document.getElementById("cfg-salario-pagador").value = STATE.config.salarioPagador || "";
     document.getElementById("cfg-saldo").value = STATE.config.saldoInicial || 0;
     document.getElementById("cfg-meta-guardar").value = STATE.config.metaGuardarMes || 0;
     document.getElementById("cfg-nomes-proprios").value = nomesProprios().join(", ");

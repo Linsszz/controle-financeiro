@@ -716,15 +716,31 @@
   <!-- CONFIG -->
   <section id="view-config" class="view">
     <header class="top"><div><h1>Configurações</h1>
-      <p class="view-desc">Ajustes gerais usados nos cálculos do Dashboard: sua renda mensal e o saldo que você tem em caixa/conta hoje.</p>
+      <p class="view-desc">Ajustes gerais usados nos cálculos do Dashboard: seu salário e o saldo que você tem em caixa/conta hoje.</p>
     </div></header>
     <div class="card">
-      <h2>Configurações gerais</h2>
+      <h2>💼 Salário</h2>
+      <p class="hint" style="margin-top:0;">Em vez de digitar "renda mensal" todo mês, configure seu salário aqui uma vez. Quando o Pix de quem você informar chegar, o sistema já reconhece sozinho que é o seu salário (mesmo reconhecimento automático do Uber, iFood etc.) — a partir daí ele soma no Saldo atual e entra nos cálculos abaixo normalmente, sem precisar editar nada aqui de novo.</p>
       <div class="row">
         <div class="field">
-          <label>Renda mensal (R$)</label>
-          <input type="number" step="0.01" id="cfg-renda">
+          <label>Valor esperado do salário (R$)</label>
+          <input type="number" step="0.01" id="cfg-salario-valor" placeholder="0,00">
         </div>
+        <div class="field" style="max-width:170px;">
+          <label>Dia esperado do mês</label>
+          <input type="number" min="1" max="31" id="cfg-salario-dia" placeholder="Ex: 5">
+        </div>
+        <div class="field">
+          <label>Pix de quem (nome que aparece no Pix)</label>
+          <input type="text" id="cfg-salario-pagador" placeholder="Ex: SOLAR GREEN">
+        </div>
+      </div>
+      <p class="hint">O "valor esperado" é usado para calcular o gasto permitido até hoje e por dia <strong>antes</strong> do salário cair — assim que o Pix reconhecido chegar e for marcado como pago, o valor real dele passa a valer no lugar deste. Pode informar mais de um nome separando por vírgula, se o pagamento vier de fontes diferentes.</p>
+    </div>
+
+    <div class="card">
+      <h2>Outros ajustes</h2>
+      <div class="row">
         <div class="field">
           <label>Saldo inicial (R$)</label>
           <input type="number" step="0.01" id="cfg-saldo">
@@ -735,7 +751,7 @@
         </div>
         <button class="btn btn-primary" id="btn-salvar-config">Salvar</button>
       </div>
-      <p class="hint">O saldo inicial é o valor que você tem em caixa/conta hoje, antes das movimentações já pagas registradas no sistema. A renda mensal é usada para calcular o percentual de renda gasta e o gasto permitido até hoje. <strong>Quanto quero guardar este mês</strong> é descontado antes de calcular o "Gasto permitido até hoje" e o "Quanto posso gastar por dia" no Dashboard — assim esses dois valores já deixam a sobra reservada de fora do que dá pra gastar.</p>
+      <p class="hint">O saldo inicial é o valor que você tem em caixa/conta hoje, antes das movimentações já pagas registradas no sistema. <strong>Quanto quero guardar este mês</strong> é descontado antes de calcular o "Gasto permitido até hoje" e o "Quanto posso gastar por dia" no Dashboard — assim esses dois valores já deixam a sobra reservada de fora do que dá pra gastar.</p>
     </div>
 
     <div class="card">
@@ -785,7 +801,7 @@
         <label><input type="checkbox" id="reset-dinheiroExtra"> Dinheiro extra</label>
         <label><input type="checkbox" id="reset-cartoes"> Cartões de crédito</label>
         <label><input type="checkbox" id="reset-lancamentos"> Lançamentos (categorias)</label>
-        <label><input type="checkbox" id="reset-config"> Renda mensal e saldo inicial</label>
+        <label><input type="checkbox" id="reset-config"> Salário, saldo inicial e meta de guardar</label>
       </div>
 
       <div class="row">

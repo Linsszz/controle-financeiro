@@ -392,3 +392,53 @@ com uma legenda embaixo explicando o número):
 
 Se você deixar "Quanto quero guardar" em branco ou zero, os dois voltam a
 funcionar exatamente como antes (sem desconto nenhum).
+
+## Correção: "Saldo atual" não batia com o saldo de verdade
+
+Duas causas, as duas já corrigidas:
+
+1. **Bancos removidos continuavam contando no saldo.** As movimentações
+   importadas de uma conexão bancária que você desconectou ou apagou
+   continuavam entrando na conta de "Saldo atual", "Renda do mês" e "Total a
+   pagar no mês" — só o "Saldo previsto" já ignorava bancos removidos. Agora
+   os quatro usam o mesmo filtro.
+2. **O saldo "reiniciava" todo mês.** "Saldo atual" era calculado só com as
+   movimentações pagas **daquele mês** + o saldo inicial — então tudo que
+   você pagou ou recebeu em meses anteriores não ficava acumulado, e o
+   número não representava o saldo de verdade da conta. Agora existe uma
+   única função (`calcularSaldoAtualReal`) que soma saldo inicial + tudo que
+   já foi pago, em qualquer mês, e ela é usada em todo o sistema — "Saldo
+   atual" deixou de mudar quando você troca o filtro de mês no Dashboard
+   (antes de errado, ele mudava).
+
+Se depois dessa correção o saldo ainda não bater, o motivo mais provável é o
+**saldo inicial** (Configurações) estar desatualizado ou alguma movimentação
+antiga estar marcada como paga sem ter sido, de fato (ou vice-versa) — vale
+abrir **Movimentações** e revisar.
+
+## Salário (em vez de "Renda mensal" manual)
+
+Em **Configurações**, o campo "Renda mensal" virou um bloco **Salário**:
+
+- **Valor esperado do salário** — usado nos cálculos (% da renda gasta, gasto
+  permitido até hoje, gasto permitido por dia) enquanto o salário do mês
+  ainda não caiu. É o mesmo campo de antes, só renomeado.
+- **Dia esperado do mês** — informativo, pra você lembrar quando costuma cair.
+- **Pix de quem** — o nome que aparece no Pix (ex: `SOLAR GREEN`). A partir
+  daí, toda vez que chegar um Pix desse pagador, o sistema já classifica
+  como lançamento **"Salário"** sozinho (mesmo reconhecimento automático do
+  Uber, iFood etc. — ver seção acima). Aceita mais de um nome separado por
+  vírgula.
+
+Assim que o Pix reconhecido for marcado como **pago** dentro do mês, o
+sistema passa a usar o **valor real recebido** no lugar do valor esperado
+nesses cálculos — e, como qualquer movimentação paga, ele já soma
+automaticamente no "Saldo atual" (isso nunca dependeu de configuração, só de
+estar marcado como pago).
+
+## "Total a pagar no mês" agora inclui as parcelas futuras do cartão
+
+O card "Parcelas futuras no cartão" foi removido e o valor dele passou a
+somar dentro de **"Total a pagar no mês"** (aparece uma legenda embaixo do
+card quando há parcelas futuras somadas). Continua sem contar duas vezes a
+parcela do mês atual.
