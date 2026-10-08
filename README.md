@@ -442,3 +442,18 @@ O card "Parcelas futuras no cartão" foi removido e o valor dele passou a
 somar dentro de **"Total a pagar no mês"** (aparece uma legenda embaixo do
 card quando há parcelas futuras somadas). Continua sem contar duas vezes a
 parcela do mês atual.
+
+## Economia (entrou − saiu) e sincronização só do mês
+
+- **Dashboard > card "Economia"**: mostra o que já entrou menos o que já saiu
+  (só movimento pago de verdade). Verde = você recebeu mais do que gastou;
+  vermelho = gastou mais do que recebeu. O seletor "Economia" ao lado do filtro
+  de mês alterna entre **só o mês escolhido** e **tudo (desde o início)**.
+- **Conexões Bancárias > "O que buscar ao sincronizar"**: por padrão a
+  sincronização traz **só o mês atual** (do dia 1 até hoje). Escolha "Últimos
+  90 dias" para puxar o histórico maior; o que já foi importado nunca duplica.
+  Movimentações, Contas a Pagar e Dashboard já abrem no mês atual, com
+  "Ver todos os meses" quando você quiser ver tudo.
+- **Salário (Pix de SOLAR GREEN)**: configurado em Configurações > Salário.
+  Cada Pix desse pagador vira "Salário" sozinho e passa a valer nos cálculos de
+  quanto dá pra gastar por dia e até hoje.

@@ -38,6 +38,8 @@ const STATE = {
   filtroMovRevisado: "",
   filtroMovTipo: "",
   buscaLivreMov: "",
+  economiaEscopo: "mes",
+  sincEscopo: "mes",
   paginaMov: 1,
   movPorPagina: 30,
   filtroLCTipo: "",
@@ -314,6 +316,28 @@ function calcularSaldoAtualReal() {
     if (e.recebido === true) saldo += Number(e.valor) || 0;
   });
   return saldo;
+}
+
+// Economia de TUDO que já foi registrado: o que já entrou menos o que já
+// saiu, em todos os meses. Usa a mesma regra do cálculo mensal (só
+// Entrada/Saída pagas, sem transferência, só bancos ativos, dinheiro extra
+// recebido) pra "este mês" e "tudo" serem comparáveis. Não depende do saldo
+// inicial — é só movimento, não o dinheiro que você já tinha antes.
+function calcularEconomiaTotal() {
+  const mapaLanc = mapaLancamentos();
+  const conexoesAtivas = conexoesAtivasParaPessoal();
+  let entrou = 0;
+  let saiu = 0;
+  STATE.movimentacoes.forEach((m) => {
+    if (m.pago !== true) return;
+    if (!movimentacaoVisivel(m, conexoesAtivas)) return;
+    const l = mapaLanc[m.lancamentoId] || {};
+    const valor = Number(m.valor) || 0;
+    if (l.tipo === "Entrada") entrou += valor;
+    else if (l.tipo === "Saida") saiu += valor;
+  });
+  STATE.dinheiroExtra.forEach((e) => { if (e.recebido === true) entrou += Number(e.valor) || 0; });
+  return { entrou, saiu, economia: entrou - saiu };
 }
 
 // Entradas/saídas SÓ do mês escolhido — útil pra comparar meses e pra saber
@@ -2339,6 +2363,7 @@ function renderDashboard() {
   const totalAPagarComCartao = d.saidasMes + geral.parcelasCartaoFuturas;
   document.getElementById("kpi-grid").innerHTML =
     kpiCard("Saldo atual", moeda(d.saldoAtual), d.saldoAtual >= 0) +
+    cardEconomia(d) +
     kpiCard("Renda do mês", moeda(d.entradasMes), true) +
     kpiCard("Total a pagar no mês", moeda(totalAPagarComCartao), true, {
       sub: geral.parcelasCartaoFuturas > 0 ? `Inclui ${moeda(geral.parcelasCartaoFuturas)} de parcelas futuras no cartão` : ""
@@ -2383,6 +2408,31 @@ function renderDashboardMovs(mes) {
     });
   renderDashMovs(doMes);
 }
+
+// "Economia" = o que já ENTROU menos o que já SAIU (só movimento pago de
+// verdade). Positivo = você recebeu mais do que gastou. O seletor ao lado do
+// filtro de mês escolhe entre só o mês que está na tela ou tudo desde o início.
+function cardEconomia(d) {
+  const tudo = STATE.economiaEscopo === "tudo";
+  const entrou = tudo ? calcularEconomiaTotal().entrou : d.entradasPagasMes;
+  const saiu = tudo ? calcularEconomiaTotal().saiu : d.saidasPagasMes;
+  const economia = entrou - saiu;
+  const rotulo = tudo ? "Economia (tudo)" : "Economia do mês";
+  const frase = economia >= 0
+    ? `Entrou ${moeda(entrou)} e saiu ${moeda(saiu)} — você recebeu mais do que gastou`
+    : `Entrou ${moeda(entrou)} e saiu ${moeda(saiu)} — você gastou mais do que recebeu`;
+  return kpiCard(rotulo, moeda(economia), economia >= 0, { destaque: true, sub: frase });
+}
+
+document.getElementById("conexoes-escopo-sync").addEventListener("change", (e) => {
+  STATE.sincEscopo = e.target.value;
+  mostrarToast(e.target.value === "90dias" ? "Próximas sincronizações buscam os últimos 90 dias." : "Próximas sincronizações buscam só o mês atual.");
+});
+
+document.getElementById("dash-economia-escopo").addEventListener("change", (e) => {
+  STATE.economiaEscopo = e.target.value;
+  renderDashboard();
+});
 
 document.getElementById("dash-filtro-mes").addEventListener("change", (e) => {
   STATE.filtroDashMes = e.target.value;
@@ -3908,9 +3958,13 @@ async function sincronizarConexao(conexaoId, automatica = false) {
       if (conta.type === "CREDIT") mapaCartaoOFPorConta[conta.id] = await sincronizarCartaoOpenFinance(conexaoId, conexao, conta);
     }
 
+    // Janela da sincronização: por padrão só o MÊS ATUAL (do dia 1 até hoje),
+    // pra não trazer meses antigos pra dentro da sua tela; escolhendo "Últimos
+    // 90 dias" em Conexões Bancárias ela volta a buscar o histórico maior.
     const hoje = new Date();
-    const de = new Date(hoje);
-    de.setDate(de.getDate() - 90);
+    const de = STATE.sincEscopo === "90dias"
+      ? new Date(hoje.getTime() - 90 * 86400000)
+      : new Date(hoje.getFullYear(), hoje.getMonth(), 1);
     const dataDe = formatarDataISO(de);
     const dataAte = formatarDataISO(hoje);
 

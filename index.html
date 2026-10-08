@@ -78,6 +78,13 @@
           <input type="month" id="dash-filtro-mes">
         </div>
         <button class="btn" id="btn-dash-mes-atual">Mês atual</button>
+        <div class="field" style="max-width:230px;">
+          <label>Economia (entrou − saiu)</label>
+          <select id="dash-economia-escopo">
+            <option value="mes">Só do mês escolhido</option>
+            <option value="tudo">Tudo (desde o início)</option>
+          </select>
+        </div>
       </div>
     </div>
     <div class="kpi-grid" id="kpi-grid">
@@ -511,6 +518,18 @@
     </div>
     <div class="top-actions"><button class="btn btn-primary" id="btn-conectar-banco">+ Conectar novo banco</button></div>
     </header>
+    <div class="card">
+      <div class="row">
+        <div class="field" style="max-width:280px;">
+          <label>O que buscar ao sincronizar</label>
+          <select id="conexoes-escopo-sync">
+            <option value="mes">Só o mês atual</option>
+            <option value="90dias">Últimos 90 dias (tudo)</option>
+          </select>
+        </div>
+      </div>
+      <p class="hint" style="margin-bottom:0;">Por padrão a sincronização traz só as entradas e saídas do mês em que você está. Escolha "Últimos 90 dias" quando quiser puxar o histórico maior (o que já foi importado nunca duplica).</p>
+    </div>
     <p class="hint">Esta integração é <strong>somente leitura</strong>: ela só lê extratos e transações do banco para importar aqui como movimentações — <strong>nunca</strong> faz pagamentos, transferências ou qualquer outra ação que mexa no seu dinheiro. Você pode revogar o acesso a qualquer momento diretamente com o banco ou pela Pluggy.</p>
     <div class="conexoes-grid" id="conexoes-grid" style="margin-top:16px;">
       <div class="empty">Carregando conexões…</div>
