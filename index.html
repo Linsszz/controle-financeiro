@@ -523,12 +523,12 @@
         <div class="field" style="max-width:280px;">
           <label>O que buscar ao sincronizar</label>
           <select id="conexoes-escopo-sync">
-            <option value="mes">Só o mês atual</option>
+            <option value="mes">Mês atual (e desde o último salário)</option>
             <option value="90dias">Últimos 90 dias (tudo)</option>
           </select>
         </div>
       </div>
-      <p class="hint" style="margin-bottom:0;">Por padrão a sincronização traz só as entradas e saídas do mês em que você está. Escolha "Últimos 90 dias" quando quiser puxar o histórico maior (o que já foi importado nunca duplica).</p>
+      <p class="hint" style="margin-bottom:0;">Por padrão a sincronização traz as entradas e saídas do mês em que você está, mais o que veio desde o último salário (se ele caiu no fim do mês passado). Escolha "Últimos 90 dias" quando quiser puxar o histórico maior (o que já foi importado nunca duplica).</p>
     </div>
     <p class="hint">Esta integração é <strong>somente leitura</strong>: ela só lê extratos e transações do banco para importar aqui como movimentações — <strong>nunca</strong> faz pagamentos, transferências ou qualquer outra ação que mexa no seu dinheiro. Você pode revogar o acesso a qualquer momento diretamente com o banco ou pela Pluggy.</p>
     <div class="conexoes-grid" id="conexoes-grid" style="margin-top:16px;">
@@ -746,7 +746,7 @@
           <input type="number" step="0.01" id="cfg-salario-valor" placeholder="0,00">
         </div>
         <div class="field" style="max-width:170px;">
-          <label>Dia esperado do mês</label>
+          <label>Dia em que o salário cai</label>
           <input type="number" min="1" max="31" id="cfg-salario-dia" placeholder="Ex: 5">
         </div>
         <div class="field">
@@ -754,6 +754,18 @@
           <input type="text" id="cfg-salario-pagador" placeholder="Ex: SOLAR GREEN">
         </div>
       </div>
+      <div class="row" style="margin-top:6px;">
+        <div class="field" style="max-width:190px;">
+          <label>Salário recebido (R$)</label>
+          <input type="number" step="0.01" id="sal-reg-valor" placeholder="0,00">
+        </div>
+        <div class="field" style="max-width:190px;">
+          <label>Recebido em</label>
+          <input type="date" id="sal-reg-data">
+        </div>
+        <button class="btn btn-primary" id="btn-registrar-salario">Registrar salário recebido</button>
+      </div>
+      <p class="hint">Se o Pix não apareceu pela sincronização, registre aqui quanto você recebeu e quando — ele entra no Saldo atual e vira a data de início do ciclo do salário (o período até o próximo).</p>
       <p class="hint">O "valor esperado" é usado para calcular o gasto permitido até hoje e por dia <strong>antes</strong> do salário cair — assim que o Pix reconhecido chegar e for marcado como pago, o valor real dele passa a valer no lugar deste. Pode informar mais de um nome separando por vírgula, se o pagamento vier de fontes diferentes.</p>
     </div>
 

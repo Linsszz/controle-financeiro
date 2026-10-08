@@ -1912,6 +1912,73 @@ function kpiCard(label, value, positivo, opts) {
 // da renda já gasta no mês corrente, quanto já podia ter gasto até hoje e o
 // total de parcelas de cartão ainda em aberto (qualquer mês). Cálculo
 // independente do "Saldo atual" (que fica só no mês escolhido).
+/* ══════════════ CICLO DO SALÁRIO ══════════════
+ * O orçamento não é o mês do calendário: é o período entre um salário e o
+ * próximo. Com "Dia esperado do mês" preenchido (Configurações > Salário) o
+ * ciclo vai do dia em que o salário caiu (a data REAL do Pix, se já chegou)
+ * até o próximo dia esperado. Sem o dia, cai de volta pro mês do calendário.
+ */
+const MS_DIA = 86400000;
+
+function zerarHora(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
+function dataIsoParaDate(iso) {
+  const [a, m, d] = String(iso || "").slice(0, 10).split("-").map(Number);
+  return new Date(a, (m || 1) - 1, d || 1);
+}
+// Dia 31 num mês de 30 dias vira dia 30 (e fevereiro idem).
+function dataSalarioNoMes(ano, mes0, dia) {
+  const ultimo = new Date(ano, mes0 + 1, 0).getDate();
+  return new Date(ano, mes0, Math.min(dia, ultimo));
+}
+function ehLancamentoSalario(l) {
+  return !!l && l.tipo === "Entrada" && (l.nome === "Salário" || l.categoria === "Salário");
+}
+
+function salariosPagos() {
+  const mapaLanc = mapaLancamentos();
+  const ativas = conexoesAtivasParaPessoal();
+  return STATE.movimentacoes
+    .filter((m) => m.pago === true && movimentacaoVisivel(m, ativas) && ehLancamentoSalario(mapaLanc[m.lancamentoId]))
+    .map((m) => ({ data: dataIsoParaDate(m.data), valor: Number(m.valor) || 0 }))
+    .sort((a, b) => a.data - b.data);
+}
+
+function calcularCicloSalario(hoje) {
+  const hojeZ = zerarHora(hoje);
+  const dia = Number(STATE.config.salarioDia) || 0;
+  const salarios = salariosPagos().filter((x) => x.data <= hojeZ);
+  const montar = (inicio, fim, salarioPendente) => {
+    const diasTotal = Math.max(1, Math.round((fim - inicio) / MS_DIA));
+    const diaAtual = Math.min(diasTotal, Math.max(1, Math.floor((hojeZ - inicio) / MS_DIA) + 1));
+    const diasRestantes = Math.max(1, Math.round((fim - hojeZ) / MS_DIA));
+    const salarioReal = salarios.filter((x) => x.data >= inicio && x.data < fim).reduce((a, x) => a + x.valor, 0);
+    return { inicio, fim, diasTotal, diaAtual, diasRestantes, salarioReal, salarioPendente };
+  };
+
+  if (!dia) {
+    return montar(new Date(hojeZ.getFullYear(), hojeZ.getMonth(), 1), new Date(hojeZ.getFullYear(), hojeZ.getMonth() + 1, 1), false);
+  }
+
+  const esperadas = [];
+  for (let k = -2; k <= 3; k++) esperadas.push(dataSalarioNoMes(hojeZ.getFullYear(), hojeZ.getMonth() + k, dia));
+
+  // Próximo salário esperado depois de hoje — a não ser que ele já tenha
+  // chegado ADIANTADO (Pix até 15 dias antes da data esperada): aí o próximo
+  // de verdade é o seguinte.
+  let idx = esperadas.findIndex((e) => e > hojeZ);
+  const chegouAdiantado = (alvo) => salarios.some((x) => x.data > new Date(alvo.getTime() - 15 * MS_DIA));
+  if (idx >= 0 && chegouAdiantado(esperadas[idx])) idx += 1;
+  if (idx < 1) idx = 1;
+  const fim = esperadas[idx];
+  const anterior = esperadas[idx - 1];
+
+  // Início = data real do último salário que caiu perto da data esperada;
+  // sem Pix registrado, usa a data esperada e marca o salário como pendente.
+  const real = [...salarios].reverse().find((x) => x.data >= new Date(anterior.getTime() - 15 * MS_DIA));
+  if (real) return montar(real.data, fim, false);
+  return montar(anterior <= hojeZ ? anterior : new Date(anterior.getTime() - 30 * MS_DIA), fim, anterior <= hojeZ);
+}
+
 function calcularIndicadoresGeraisDash() {
   const mapaLanc = mapaLancamentos();
   const rendaMensal = Number(STATE.config.rendaMensal) || 0;
@@ -1919,14 +1986,12 @@ function calcularIndicadoresGeraisDash() {
   const hoje = new Date();
   const anoMes = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`;
 
+  const ciclo = calcularCicloSalario(hoje);
   let saidasNaoPagas = 0;
   let entradasNaoPagas = 0;
-  let saidasPagasMes = 0;
+  let saidasPagasCiclo = 0;
+  let aPagarAteProximoSalario = 0;
   let parcelasCartaoFuturas = 0;
-  // Salário de verdade já recebido ESTE mês (lançamento "Salário", pago) —
-  // assim que existir, ele substitui o "valor esperado" nos cálculos de %
-  // da renda gasta e gasto permitido, em vez da estimativa de Configurações.
-  let salarioRecebidoMes = 0;
 
   const conexoesAtivas = conexoesAtivasParaPessoal();
   STATE.movimentacoes.forEach((m) => {
@@ -1936,15 +2001,17 @@ function calcularIndicadoresGeraisDash() {
     const ehSaida = l.tipo === "Saida";
     const dataAnoMes = String(m.data || "").slice(0, 7);
     const ehTransferencia = l.tipo === "Transferencia";
-    const ehSalario = l.tipo === "Entrada" && (l.nome === "Salário" || l.categoria === "Salário");
+    const dataM = dataIsoParaDate(m.data);
 
     if (m.pago === true) {
-      if (!ehTransferencia && ehSaida && dataAnoMes === anoMes) saidasPagasMes += valor;
-      if (ehSalario && dataAnoMes === anoMes) salarioRecebidoMes += valor;
+      if (!ehTransferencia && ehSaida && dataM >= ciclo.inicio && dataM < ciclo.fim) saidasPagasCiclo += valor;
     } else {
       if (!ehTransferencia) {
-        if (ehSaida) saidasNaoPagas += valor;
-        else entradasNaoPagas += valor;
+        if (ehSaida) {
+          saidasNaoPagas += valor;
+          // Tudo que vence antes do próximo salário (inclusive atrasado).
+          if (dataM < ciclo.fim) aPagarAteProximoSalario += valor;
+        } else entradasNaoPagas += valor;
       }
       // Só MESES FUTUROS (não o atual): as parcelas de cartão deste mês já
       // entram em "saidasNaoPagas"/"Total a pagar no mês" — contar de novo
@@ -1963,25 +2030,33 @@ function calcularIndicadoresGeraisDash() {
   const saldoAtual = calcularSaldoAtualReal();
 
   const saldoPrevisto = saldoAtual - saidasNaoPagas + entradasNaoPagas;
-  const diaAtual = hoje.getDate();
-  const ultimoDiaMes = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0).getDate();
-  // Enquanto o salário não cai, usa o valor esperado (Configurações); assim
-  // que o Pix reconhecido chega e é marcado como pago, o valor real dele
-  // passa a valer no lugar do esperado — ver "ehSalario" acima.
-  const rendaBase = salarioRecebidoMes > 0 ? salarioRecebidoMes : rendaMensal;
-  const percentualRendaGasta = rendaBase > 0 ? (saidasPagasMes / rendaBase) * 100 : 0;
+  // Enquanto o salário do ciclo não cai, usa o valor esperado (Configurações);
+  // quando o Pix chega (ou você registra), o valor real passa a valer.
+  const rendaBase = ciclo.salarioReal > 0 ? ciclo.salarioReal : rendaMensal;
+  const percentualRendaGasta = rendaBase > 0 ? (saidasPagasCiclo / rendaBase) * 100 : 0;
   // Mesma ideia do "gasto por dia": o orçamento que dá pra gastar no mês é a
   // renda MENOS o quanto você quer guardar — só esse valor é rateado pelos
   // dias do mês pra saber o quanto já podia ter sido gasto até hoje.
   const metaGuardarMes = Number(STATE.config.metaGuardarMes) || 0;
   const orcamentoDisponivelMes = rendaBase - metaGuardarMes;
-  const gastoPermitidoAteHoje = rendaBase > 0 ? (orcamentoDisponivelMes / ultimoDiaMes) * diaAtual : 0;
+  const gastoPermitidoAteHoje = rendaBase > 0 ? (orcamentoDisponivelMes / ciclo.diasTotal) * ciclo.diaAtual : 0;
   // Folga real: o que você já podia ter gasto até hoje menos o que já gastou
   // de fato. Negativo = já passou do ritmo (risco de faltar dinheiro pra
   // guardar a meta ou pra fechar o mês).
-  const folgaAteHoje = gastoPermitidoAteHoje - saidasPagasMes;
+  const folgaAteHoje = gastoPermitidoAteHoje - saidasPagasCiclo;
 
-  return { saldoAtual, saldoPrevisto, percentualRendaGasta, gastoPermitidoAteHoje, folgaAteHoje, saidasPagasMes, metaGuardarMes, parcelasCartaoFuturas };
+  // Quanto dá pra gastar por dia até o próximo salário: o dinheiro que você
+  // tem de verdade hoje, menos tudo que ainda vence antes dele e a meta de
+  // guardar, dividido pelos dias que faltam (hoje incluso).
+  const disponivelAteProximoSalario = saldoAtual - aPagarAteProximoSalario - metaGuardarMes;
+  const gastoPorDia = disponivelAteProximoSalario / ciclo.diasRestantes;
+
+  return {
+    saldoAtual, saldoPrevisto, percentualRendaGasta, gastoPermitidoAteHoje, folgaAteHoje,
+    saidasPagasCiclo, metaGuardarMes, parcelasCartaoFuturas,
+    gastoPorDia, diasRestantesCiclo: ciclo.diasRestantes, fimCiclo: ciclo.fim, inicioCiclo: ciclo.inicio,
+    salarioPendente: ciclo.salarioPendente, aPagarAteProximoSalario, rendaBase, salarioReal: ciclo.salarioReal
+  };
 }
 
 /* ══════════════ DASHBOARD: PAINEL DE PERÍODO (filtros + gráficos + transações) ══════════════
@@ -2369,17 +2444,19 @@ function renderDashboard() {
       sub: geral.parcelasCartaoFuturas > 0 ? `Inclui ${moeda(geral.parcelasCartaoFuturas)} de parcelas futuras no cartão` : ""
     }) +
     kpiCard("Já pago no mês", moeda(d.saidasPagasMes), true) +
-    kpiCard("Quanto posso gastar por dia", moeda(d.gastoPorDia) + ` <small>(${d.diasRestantes} dias)</small>`, d.gastoPorDia >= 0, {
+    kpiCard("Quanto posso gastar por dia", moeda(geral.gastoPorDia) + ` <small>(${geral.diasRestantesCiclo} dias)</small>`, geral.gastoPorDia >= 0, {
       destaque: true,
-      sub: d.metaGuardarMes > 0 ? `Já deixando ${moeda(d.metaGuardarMes)} reservado pra guardar este mês` : "Defina em Configurações quanto quer guardar este mês"
+      sub: `Até ${dataBR(formatarDataISO(geral.fimCiclo))} (próximo salário) · já descontado ${moeda(geral.aPagarAteProximoSalario)} a pagar` +
+        (geral.metaGuardarMes > 0 ? ` e ${moeda(geral.metaGuardarMes)} pra guardar` : "") +
+        (geral.salarioPendente ? " · ⚠ o salário deste ciclo ainda não aparece — registre em Configurações" : "")
     }) +
     kpiCard("Saldo previsto", moeda(geral.saldoPrevisto), geral.saldoPrevisto >= 0) +
-    kpiCard("% da renda gasta no mês", geral.percentualRendaGasta.toFixed(1) + "%", geral.percentualRendaGasta <= 100) +
+    kpiCard("% da renda gasta no ciclo", geral.percentualRendaGasta.toFixed(1) + "%", geral.percentualRendaGasta <= 100) +
     kpiCard("Gasto permitido até hoje", moeda(geral.gastoPermitidoAteHoje), geral.folgaAteHoje >= 0, {
       destaque: true,
       sub: geral.folgaAteHoje >= 0
-        ? `Já gastou ${moeda(geral.saidasPagasMes)} — ainda tem ${moeda(geral.folgaAteHoje)} de folga`
-        : `Já gastou ${moeda(geral.saidasPagasMes)} — ${moeda(Math.abs(geral.folgaAteHoje))} acima do previsto pra hoje`
+        ? `Já gastou ${moeda(geral.saidasPagasCiclo)} — ainda tem ${moeda(geral.folgaAteHoje)} de folga`
+        : `Já gastou ${moeda(geral.saidasPagasCiclo)} — ${moeda(Math.abs(geral.folgaAteHoje))} acima do previsto pra hoje`
     });
   renderDashboardMovs(mes);
   renderGraficoCategorias(mes);
@@ -3962,9 +4039,13 @@ async function sincronizarConexao(conexaoId, automatica = false) {
     // pra não trazer meses antigos pra dentro da sua tela; escolhendo "Últimos
     // 90 dias" em Conexões Bancárias ela volta a buscar o histórico maior.
     const hoje = new Date();
+    // "Mês atual" também cobre o ciclo do salário em andamento: se o salário
+    // caiu no fim do mês passado, o Pix dele ainda entra na busca.
+    const primeiroDoMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+    const inicioCiclo = calcularCicloSalario(hoje).inicio;
     const de = STATE.sincEscopo === "90dias"
       ? new Date(hoje.getTime() - 90 * 86400000)
-      : new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+      : (inicioCiclo < primeiroDoMes ? inicioCiclo : primeiroDoMes);
     const dataDe = formatarDataISO(de);
     const dataAte = formatarDataISO(hoje);
 
@@ -4792,6 +4873,30 @@ document.getElementById("btn-excluir-extra").addEventListener("click", async () 
   if (!confirm("Excluir este dinheiro extra?")) return;
   try { await deleteDoc(doc(db, "dinheiroExtra", id)); fecharModalExtra(); mostrarToast("Excluído."); }
   catch (err) { mostrarToast("Não foi possível excluir: " + err.message, true); }
+});
+
+/* ══════════════ REGISTRAR SALÁRIO RECEBIDO ══════════════ */
+
+// Pra quando o Pix do salário não veio na sincronização (banco atrasou, caiu
+// fora da janela buscada...): você informa quanto recebeu e quando, e o
+// sistema cria a entrada já paga no lançamento "Salário". Isso passa a valer
+// na hora no saldo, no ciclo do salário e em todos os cálculos de gasto.
+document.getElementById("sal-reg-data").value = formatarDataISO(new Date());
+document.getElementById("btn-registrar-salario").addEventListener("click", async () => {
+  const valor = Number(document.getElementById("sal-reg-valor").value);
+  const data = document.getElementById("sal-reg-data").value;
+  if (!valor || valor <= 0 || !data) return mostrarToast("Informe o valor recebido e a data.", true);
+  try {
+    const lancamentoId = await garantirLancamentoSugerido({ nome: "Salário", categoria: "Salário", tipo: "Entrada" });
+    await addDoc(collection(db, "movimentacoes"), {
+      lancamentoId, data, valor, pago: true, origem: "Manual", revisado: true,
+      cartaoId: null, compraParceladaId: null, createdAt: serverTimestamp()
+    });
+    document.getElementById("sal-reg-valor").value = "";
+    mostrarToast("Salário registrado! Saldo e cálculos já foram atualizados.");
+  } catch (err) {
+    mostrarToast("Não foi possível registrar: " + err.message, true);
+  }
 });
 
 /* ══════════════ APARÊNCIA (cores do app) ══════════════ */

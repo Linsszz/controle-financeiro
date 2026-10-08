@@ -457,3 +457,20 @@ parcela do mês atual.
 - **Salário (Pix de SOLAR GREEN)**: configurado em Configurações > Salário.
   Cada Pix desse pagador vira "Salário" sozinho e passa a valer nos cálculos de
   quanto dá pra gastar por dia e até hoje.
+
+## Ciclo do salário (do salário até o próximo)
+
+"Quanto posso gastar por dia", "Gasto permitido até hoje" e "% da renda gasta"
+agora contam o período **entre um salário e o próximo**, não o mês do
+calendário. Em Configurações > Salário, preencha **"Dia em que o salário cai"**:
+
+- O ciclo começa na data **real** do Pix do salário (se chegou adiantado ou
+  atrasado, vale a data real) e vai até o próximo dia esperado.
+- **Quanto posso gastar por dia** = saldo atual − tudo que vence antes do
+  próximo salário − meta de guardar, dividido pelos dias que faltam.
+- Se o salário do ciclo ainda não aparece, o card mostra um aviso. Use
+  **"Registrar salário recebido"** (valor + data) em Configurações > Salário:
+  vira uma entrada paga em "Salário" e já entra no saldo e nos cálculos.
+- Sem o dia preenchido, tudo volta a usar o mês do calendário.
+- A sincronização "Mês atual" também busca desde o último salário, pra não
+  perder um Pix que caiu no fim do mês anterior.
